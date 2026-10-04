@@ -4,6 +4,10 @@ from biomedical_rag.rag_pipeline import RAGPipeline
 
 def main():
 
+    # =========================================================
+    # Step 1: Define disease and targets
+    # =========================================================
+
     disease_name = "type 2 diabetes mellitus"
 
     target_symbols = [
@@ -12,7 +16,12 @@ def main():
         "GCK"
     ]
 
+    # =========================================================
+    # Step 2: Retrieve literature
+    # =========================================================
+
     print("Retrieving literature...")
+    print()
 
     literature_retriever = LiteratureRetriever()
 
@@ -29,12 +38,44 @@ def main():
 
     print()
 
+    # =========================================================
+    # Step 3: Show target-paper relationships
+    # =========================================================
+
+    print("Target-paper relationships:")
+    print()
+
+    for paper in batch_result.papers:
+
+        print(
+            f"PMID: {paper.pmid}"
+        )
+
+        print(
+            f"Title: {paper.title}"
+        )
+
+        print(
+            f"Targets: {paper.target_symbols}"
+        )
+
+        print()
+
+    # =========================================================
+    # Step 4: Build RAG pipeline
+    # =========================================================
+
     print("Building RAG pipeline...")
+    print()
 
     pipeline = RAGPipeline(
         chunk_size=500,
         overlap=100
     )
+
+    # =========================================================
+    # Step 5: Convert papers into chunks and embeddings
+    # =========================================================
 
     indexed_chunks = pipeline.add_papers(
         papers=batch_result.papers,
@@ -48,50 +89,87 @@ def main():
 
     print()
 
-    query = (
-        "What evidence connects the target "
-        "to type 2 diabetes mellitus?"
-    )
+    # =========================================================
+    # Step 6: Target-specific semantic retrieval
+    # =========================================================
 
-    print("Query:")
-    print(query)
-
+    print("Target-specific evidence retrieval:")
     print()
 
-    results = pipeline.search(
-        query=query,
-        retrieval_k=10,
-        final_k=5
-    )
+    for target in target_symbols:
 
-    print("Retrieved evidence:")
-    print()
-
-    for number, result in enumerate(
-        results,
-        start=1
-    ):
-
-        print(
-            f"{number}. "
-            f"PMID: {result.chunk.pmid}"
+        query = (
+            f"What evidence connects "
+            f"{target} with "
+            f"{disease_name}?"
         )
 
-        print(
-            f"   Score: {result.score}"
-        )
-
-        print(
-            f"   Target: "
-            f"{result.chunk.target_symbols}"
-        )
-
-        print(
-            f"   Text: "
-            f"{result.chunk.text}"
-        )
-
+        print("=" * 80)
+        print(f"Target: {target}")
+        print(f"Query: {query}")
+        print("=" * 80)
         print()
+
+        # -----------------------------------------------------
+        # Retrieve candidate chunks
+        # -----------------------------------------------------
+
+        results = pipeline.search(
+            query=query,
+            retrieval_k=10,
+            final_k=5
+        )
+
+        # -----------------------------------------------------
+        # Display results
+        # -----------------------------------------------------
+
+        if not results:
+
+            print("No relevant evidence found.")
+            print()
+
+            continue
+
+        for number, result in enumerate(
+            results,
+            start=1
+        ):
+
+            print(
+                f"{number}. PMID: "
+                f"{result.chunk.pmid}"
+            )
+
+            print(
+                f"   Score: "
+                f"{result.score}"
+            )
+
+            print(
+                f"   Targets: "
+                f"{result.chunk.target_symbols}"
+            )
+
+            print(
+                f"   Title: "
+                f"{result.chunk.title}"
+            )
+
+            print(
+                f"   Text: "
+                f"{result.chunk.text}"
+            )
+
+            print()
+
+    # =========================================================
+    # Step 7: Finish
+    # =========================================================
+
+    print("=" * 80)
+    print("RAG test completed successfully.")
+    print("=" * 80)
 
 
 if __name__ == "__main__":
