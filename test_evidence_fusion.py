@@ -32,6 +32,7 @@ print(f"Strong evidence: {result.strong_evidence_count}")
 print(f"Moderate evidence: {result.moderate_evidence_count}")
 print(f"Weak evidence: {result.weak_evidence_count}")
 print(f"Literature score: {result.literature_score}")
+print(f"Literature status: {result.literature_status}")
 print(f"Fused score: {result.fused_score}")
 
 print("=" * 80)

@@ -94,13 +94,18 @@ class EvidenceFusion:
         return min(score, 1.0)
 
     def fuse(
-        self,
+    self,
         evidence: TargetFusionInput
     ) -> TargetFusionResult:
 
         literature_score = (
             self.calculate_literature_score(evidence)
-        )
+    )
+
+        if evidence.evidence_count == 0:
+            literature_status = "no_evidence"
+        else:
+            literature_status = "evidence_found"
 
         fused_score = (
             evidence.structured_score
@@ -119,5 +124,6 @@ class EvidenceFusion:
             moderate_evidence_count=evidence.moderate_evidence_count,
             weak_evidence_count=evidence.weak_evidence_count,
             literature_score=literature_score,
+            literature_status=literature_status,
             fused_score=fused_score
         )

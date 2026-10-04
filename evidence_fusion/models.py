@@ -1,14 +1,12 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class TargetFusionInput(BaseModel):
     target_id: str
     target_symbol: str
 
-    # Score from Open Targets
     structured_score: float = 0.0
 
-    # Literature evidence information
     evidence_count: int = 0
     strong_evidence_count: int = 0
     moderate_evidence_count: int = 0
@@ -27,4 +25,7 @@ class TargetFusionResult(BaseModel):
     weak_evidence_count: int = 0
 
     literature_score: float = 0.0
+
+    literature_status: str = "no_evidence"
+
     fused_score: float = 0.0
