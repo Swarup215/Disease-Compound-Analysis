@@ -10,14 +10,22 @@ class Paper(BaseModel):
     journal: Optional[str] = None
     publication_date: Optional[str] = None
     doi: Optional[str] = None
-    authors: List[str] = Field(default_factory=list)
+    authors: List[str] = Field(
+        default_factory=list
+    )
+
+    target_symbols: List[str] = Field(
+        default_factory=list
+    )
 
 
 class LiteratureRetrievalResult(BaseModel):
     query: str
     total_found: int = 0
     retrieved_papers: int = 0
-    papers: List[Paper] = Field(default_factory=list)
+    papers: List[Paper] = Field(
+        default_factory=list
+    )
 
 
 class TargetLiteratureResult(BaseModel):
@@ -26,7 +34,9 @@ class TargetLiteratureResult(BaseModel):
     query: str
     total_found: int = 0
     retrieved_papers: int = 0
-    papers: List[Paper] = Field(default_factory=list)
+    papers: List[Paper] = Field(
+        default_factory=list
+    )
 
 
 class BatchLiteratureResult(BaseModel):
@@ -34,7 +44,9 @@ class BatchLiteratureResult(BaseModel):
     total_targets: int = 0
     processed_targets: int = 0
     total_papers: int = 0
-    papers: List[Paper] = Field(default_factory=list)
+    papers: List[Paper] = Field(
+        default_factory=list
+    )
     target_results: List[TargetLiteratureResult] = Field(
         default_factory=list
     )

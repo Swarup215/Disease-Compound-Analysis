@@ -148,22 +148,22 @@ class LiteratureRetriever:
         disease_name: str,
         target_symbols: list[str],
         papers_per_target: int = 5
-    ) -> BatchLiteratureResult:
+) -> BatchLiteratureResult:
 
         if not disease_name or not disease_name.strip():
             raise ValueError(
-                "Disease name cannot be empty"
-            )
+            "Disease name cannot be empty"
+        )
 
         if not target_symbols:
             raise ValueError(
-                "Target symbols cannot be empty"
-            )
+            "Target symbols cannot be empty"
+        )
 
         if papers_per_target <= 0:
             raise ValueError(
-                "papers_per_target must be greater than 0"
-            )
+            "papers_per_target must be greater than 0"
+        )
 
         target_results = []
 
@@ -172,25 +172,44 @@ class LiteratureRetriever:
         for target_symbol in target_symbols:
 
             result = self.search_target(
-                disease_name=disease_name,
-                target_symbol=target_symbol,
-                top_n=papers_per_target
-            )
+            disease_name=disease_name,
+            target_symbol=target_symbol,
+            top_n=papers_per_target
+        )
 
             target_results.append(result)
 
             for paper in result.papers:
 
                 if paper.pmid not in unique_papers:
+
+                    paper.target_symbols = [
+                        target_symbol
+                ]
+
                     unique_papers[paper.pmid] = paper
+
+                else:
+
+                    existing_paper = unique_papers[
+                        paper.pmid
+                ]
+
+                    if (
+                        target_symbol
+                        not in existing_paper.target_symbols
+                    ):
+                        existing_paper.target_symbols.append(
+                            target_symbol
+                    )
 
         papers = list(unique_papers.values())
 
         return BatchLiteratureResult(
-            disease_name=disease_name,
-            total_targets=len(target_symbols),
-            processed_targets=len(target_results),
-            total_papers=len(papers),
-            papers=papers,
-            target_results=target_results
-        )
+        disease_name=disease_name,
+        total_targets=len(target_symbols),
+        processed_targets=len(target_results),
+        total_papers=len(papers),
+        papers=papers,
+        target_results=target_results
+    )
