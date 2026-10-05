@@ -6,7 +6,7 @@ A modular biomedical evidence pipeline for disease normalization, structured tar
 
 - `disease_normalizer/` - Normalizes disease names and resolves ontology identifiers.
 - `structured_retriever/` - Retrieves disease-target associations from structured sources such as Open Targets.
-- `literature_retriever/` - Builds literature queries and retrieves PubMed results.
+- `literature_retriever/` - Builds literature queries and harvests scientific literature across PubMed, EMBL-EBI Europe PMC, and Open Targets.
 - `biomedical_rag/` - Processes, chunks, embeds, stores, retrieves, and reranks literature evidence.
 - `evidence_extractor/` - Extracts structured evidence from retrieved text.
 - `evidence_graph/` - Represents diseases, targets, papers, and evidence relationships.
