@@ -42,7 +42,9 @@ class EvidenceExtractor:
         self,
         chunk: RAGChunk,
         disease_name: str,
-        target_symbol: str
+        target_symbol: str,
+        synonyms: list[str] | None = None,
+        paper_meta: dict | None = None
     ) -> EvidenceExtractionResult:
 
         if not disease_name or not disease_name.strip():
@@ -68,9 +70,19 @@ class EvidenceExtractor:
 
         evidence_items = []
 
+        # Extract paper metadata if available
+        meta = paper_meta or {}
+        title = chunk.title or meta.get("title") or chunk.metadata.get("title")
+        journal = meta.get("journal") or chunk.metadata.get("journal")
+        pub_date = meta.get("publication_date") or chunk.metadata.get("publication_date")
+        doi = meta.get("doi") or chunk.metadata.get("doi")
+        authors = meta.get("authors") or []
+        if isinstance(authors, str):
+            authors = [a.strip() for a in authors.split(",") if a.strip()]
+
         for index, sentence in enumerate(sentences):
 
-            # Target must actually appear in the text.
+            # Target must actually appear in the sentence
             if not contains_target(
                 sentence,
                 target_symbol
@@ -84,10 +96,17 @@ class EvidenceExtractor:
 
             disease_found = contains_disease(
                 context,
-                disease_name
+                disease_name,
+                synonyms=synonyms
             )
 
             # We need disease context for direct evidence.
+            if not disease_found:
+                # Also check title or chunk disease_name context
+                if (chunk.title and contains_disease(chunk.title, disease_name, synonyms)) or \
+                   (chunk.disease_name and contains_disease(chunk.disease_name, disease_name, synonyms)):
+                    disease_found = True
+
             if not disease_found:
                 continue
 
@@ -98,12 +117,14 @@ class EvidenceExtractor:
             relation = classify_relation(
                 text=context,
                 target_symbol=target_symbol,
-                disease_name=disease_name
+                disease_name=disease_name,
+                synonyms=synonyms
             )
+
             evidence_strength = classify_evidence_strength(
                 evidence_type=evidence_type,
                 relation=relation
-)
+            )
 
             direction = classify_direction(
                 text=context,
@@ -116,7 +137,8 @@ class EvidenceExtractor:
                 disease_name=disease_name,
                 evidence_type=evidence_type,
                 relation=relation,
-                direction=direction
+                direction=direction,
+                synonyms=synonyms
             )
 
             if confidence < self.min_confidence:
@@ -125,6 +147,11 @@ class EvidenceExtractor:
             evidence_items.append(
                 EvidenceItem(
                     pmid=chunk.pmid,
+                    title=title,
+                    journal=journal,
+                    publication_date=pub_date,
+                    doi=doi,
+                    authors=authors if isinstance(authors, list) else [],
                     disease_name=disease_name,
                     target_symbol=target_symbol,
                     evidence_text=context,
@@ -192,7 +219,8 @@ class EvidenceExtractor:
         disease_name: str,
         evidence_type: str,
         relation: str,
-        direction: str
+        direction: str,
+        synonyms: list[str] | None = None
     ) -> float:
 
         score = 0.0
@@ -207,7 +235,8 @@ class EvidenceExtractor:
         # Disease explicitly appears.
         if contains_disease(
             context,
-            disease_name
+            disease_name,
+            synonyms=synonyms
         ):
             score += 0.25
 

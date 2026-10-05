@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Biomedical AI — Disease Target Discovery & Evidence Fusion</title>
+  <meta name="description" content="Modular biomedical AI pipeline for disease normalization, structured target retrieval, PubMed literature harvesting, RAG semantic search, biological evidence extraction, and target prioritization.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Navbar / Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+            <circle cx="12" cy="12" r="3" fill="currentColor"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>Biomedical<span class="gradient-text">AI</span></h1>
+          <span class="brand-tag">Evidence Fusion & Target Prioritization Platform</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span class="status-badge" id="systemStatusBadge"><span class="pulse-dot"></span> Pipeline Ready</span>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Search & Configuration Section -->
+      <section class="card config-card" id="configSection">
+        <div class="card-header">
+          <div class="card-title-group">
+            <span class="section-number">01</span>
+            <div>
+              <h2>Query & Pipeline Configuration</h2>
+              <p class="section-desc">Specify the human disease condition and analysis depth parameters</p>
+            </div>
+          </div>
+        </div>
+
+        <form id="pipelineForm" class="config-form">
+          <!-- Disease Input -->
+          <div class="form-group full-width">
+            <label for="diseaseInput" class="form-label">
+              <span>Target Disease / Disorder</span>
+              <span class="label-hint">Accepts common disease names, synonyms, or ontology IDs</span>
+            </label>
+            <div class="input-wrapper">
+              <input type="text" id="diseaseInput" class="text-input" placeholder="e.g. Type 2 diabetes mellitus, Alzheimer, Asthma, Breast cancer" required value="Type 2 diabetes">
+              <button type="button" class="clear-btn" id="clearDiseaseBtn" title="Clear input">&times;</button>
+            </div>
+            <!-- Quick Suggestions -->
+            <div class="quick-tags">
+              <span class="tag-label">Quick Suggestions:</span>
+              <button type="button" class="disease-tag" data-disease="Type 2 diabetes">Type 2 Diabetes</button>
+              <button type="button" class="disease-tag" data-disease="Alzheimer Disease">Alzheimer's</button>
+              <button type="button" class="disease-tag" data-disease="Parkinson Disease">Parkinson's</button>
+              <button type="button" class="disease-tag" data-disease="Rheumatoid Arthritis">Rheumatoid Arthritis</button>
+              <button type="button" class="disease-tag" data-disease="Breast Cancer">Breast Cancer</button>
+              <button type="button" class="disease-tag" data-disease="Asthma">Asthma</button>
+            </div>
+          </div>
+
+          <!-- Parameters Grid -->
+          <div class="params-grid">
+            <!-- Target Proteins Count -->
+            <div class="param-card">
+              <div class="param-header">
+                <label for="targetLimitInput" class="param-label">Candidate Proteins / Targets</label>
+                <span class="param-value" id="targetLimitVal">10</span>
+              </div>
+              <input type="range" id="targetLimitSlider" min="3" max="30" step="1" value="10" class="range-slider">
+              <span class="param-hint">Number of top Open Targets candidates to retrieve</span>
+            </div>
+
+            <!-- Literature Papers per Target -->
+            <div class="param-card">
+              <div class="param-header">
+                <label for="papersLimitInput" class="param-label">Literature Papers to Review</label>
+                <span class="param-value" id="papersLimitVal">3</span>
+              </div>
+              <input type="range" id="papersLimitSlider" min="1" max="10" step="1" value="3" class="range-slider">
+              <span class="param-hint">PubMed articles harvested per candidate target</span>
+            </div>
+          </div>
+
+          <!-- Collapsible Advanced Settings -->
+          <details class="advanced-settings">
+            <summary class="advanced-summary">
+              <span>Advanced Pipeline Calibration</span>
+              <span class="toggle-icon">▾</span>
+            </summary>
+            <div class="advanced-content">
+              <div class="advanced-grid">
+                <div class="param-card">
+                  <div class="param-header">
+                    <label class="param-label">Structured Evidence Weight</label>
+                    <span class="param-value" id="structWeightVal">0.60</span>
+                  </div>
+                  <input type="range" id="structWeightSlider" min="0.0" max="1.0" step="0.05" value="0.60" class="range-slider">
+                  <span class="param-hint">Open Targets association confidence weight</span>
+                </div>
+                <div class="param-card">
+                  <div class="param-header">
+                    <label class="param-label">Literature Evidence Weight</label>
+                    <span class="param-value" id="litWeightVal">0.40</span>
+                  </div>
+                  <input type="range" id="litWeightSlider" min="0.0" max="1.0" step="0.05" value="0.40" class="range-slider">
+                  <span class="param-hint">PubMed RAG biological evidence score weight</span>
+                </div>
+                <div class="param-card">
+                  <div class="param-header">
+                    <label class="param-label">Min Open Targets Score</label>
+                    <span class="param-value" id="minScoreVal">0.40</span>
+                  </div>
+                  <input type="range" id="minScoreSlider" min="0.0" max="0.9" step="0.05" value="0.40" class="range-slider">
+                  <span class="param-hint">Score filter threshold for initial targets</span>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <!-- Submit Button -->
+          <div class="form-actions">
+            <button type="submit" id="runPipelineBtn" class="btn btn-primary btn-glow">
+              <span class="btn-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+              </span>
+              <span class="btn-text">Execute Biomedical Analysis</span>
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Execution Progress Section -->
+      <section class="card progress-card hidden" id="progressSection">
+        <div class="progress-header">
+          <div class="progress-title">
+            <div class="spinner"></div>
+            <div>
+              <h3 id="progressStageText">Initializing Pipeline...</h3>
+              <p class="progress-subtitle">Extracting evidence and computing fusion scores</p>
+            </div>
+          </div>
+          <span class="progress-percent" id="progressPercent">0%</span>
+        </div>
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progressBarFill" style="width: 0%;"></div>
+        </div>
+        <!-- Progress Steps -->
+        <div class="stepper-grid" id="stepperGrid">
+          <div class="step-item active" id="step1">
+            <span class="step-dot"></span>
+            <span class="step-label">1. Disease Normalization</span>
+          </div>
+          <div class="step-item" id="step2">
+            <span class="step-dot"></span>
+            <span class="step-label">2. Structured Targets</span>
+          </div>
+          <div class="step-item" id="step3">
+            <span class="step-dot"></span>
+            <span class="step-label">3. PubMed Harvesting</span>
+          </div>
+          <div class="step-item" id="step4">
+            <span class="step-dot"></span>
+            <span class="step-label">4. Dense Vector RAG</span>
+          </div>
+          <div class="step-item" id="step5">
+            <span class="step-dot"></span>
+            <span class="step-label">5. Evidence Extraction</span>
+          </div>
+          <div class="step-item" id="step6">
+            <span class="step-dot"></span>
+            <span class="step-label">6. Evidence Fusion</span>
+          </div>
+          <div class="step-item" id="step7">
+            <span class="step-dot"></span>
+            <span class="step-label">7. Target Prioritization</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Results Container -->
+      <section class="results-container hidden" id="resultsSection">
+        <!-- Overview Metrics Strip -->
+        <div class="metrics-grid">
+          <div class="metric-card metric-primary">
+            <div class="metric-icon">🔬</div>
+            <div class="metric-content">
+              <span class="metric-label">Target Disease</span>
+              <h3 class="metric-value" id="resDiseaseName">-</h3>
+              <div class="id-badges" id="resDiseaseBadges"></div>
+            </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon">🧬</div>
+            <div class="metric-content">
+              <span class="metric-label">Total Proteins Found</span>
+              <h3 class="metric-value" id="resTotalProteins">0</h3>
+              <span class="metric-sub" id="resAnalyzedProteins">0 analyzed</span>
+            </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon">📚</div>
+            <div class="metric-content">
+              <span class="metric-label">Literature Papers Reviewed</span>
+              <h3 class="metric-value" id="resTotalPapers">0</h3>
+              <span class="metric-sub">PubMed verified</span>
+            </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon">📑</div>
+            <div class="metric-content">
+              <span class="metric-label">Literature Evidence Claims</span>
+              <h3 class="metric-value" id="resTotalEvidence">0</h3>
+              <span class="metric-sub" id="resElapsed">0.0s elapsed</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="tabs-nav">
+          <button class="tab-btn active" data-tab="prioritizedTab">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            Prioritized Targets & Evidence
+          </button>
+          <button class="tab-btn" data-tab="papersTab">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            Literature Library (<span id="tabPapersCount">0</span>)
+          </button>
+          <button class="tab-btn" data-tab="graphTab">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            Evidence Graph
+          </button>
+          <button class="tab-btn" data-tab="exportTab">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export & JSON
+          </button>
+        </div>
+
+        <!-- Tab 1: Prioritized Targets -->
+        <div class="tab-pane active" id="prioritizedTab">
+          <div class="results-toolbar">
+            <div class="search-box">
+              <input type="text" id="targetFilterInput" placeholder="Filter targets by symbol, name, or evidence..." class="filter-input">
+            </div>
+            <div class="filter-actions">
+              <button type="button" class="btn btn-secondary btn-sm" id="expandAllBtn">Expand All Evidence</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="collapseAllBtn">Collapse All</button>
+            </div>
+          </div>
+
+          <div class="targets-list" id="targetsList">
+            <!-- Targets rendered dynamically by app.js -->
+          </div>
+        </div>
+
+        <!-- Tab 2: Literature Library -->
+        <div class="tab-pane" id="papersTab">
+          <div class="papers-grid" id="papersList">
+            <!-- Papers rendered dynamically by app.js -->
+          </div>
+        </div>
+
+        <!-- Tab 3: Evidence Graph -->
+        <div class="tab-pane" id="graphTab">
+          <div class="graph-overview-card">
+            <h3>Heterogeneous Biomedical Evidence Network</h3>
+            <p>Knowledge graph relating diseases, targets, scientific publications, and structured claims</p>
+            <div class="graph-stats-grid">
+              <div class="graph-stat-box">
+                <span class="stat-num" id="graphDiseaseCount">0</span>
+                <span class="stat-lbl">Disease Nodes</span>
+              </div>
+              <div class="graph-stat-box">
+                <span class="stat-num" id="graphTargetCount">0</span>
+                <span class="stat-lbl">Target Nodes</span>
+              </div>
+              <div class="graph-stat-box">
+                <span class="stat-num" id="graphPaperCount">0</span>
+                <span class="stat-lbl">Paper Nodes</span>
+              </div>
+              <div class="graph-stat-box">
+                <span class="stat-num" id="graphEvidenceCount">0</span>
+                <span class="stat-lbl">Evidence Nodes</span>
+              </div>
+              <div class="graph-stat-box">
+                <span class="stat-num" id="graphEdgeCount">0</span>
+                <span class="stat-lbl">Relationship Edges</span>
+              </div>
+            </div>
+            <div class="edges-table-wrapper">
+              <h4>Sample Knowledge Graph Relationships</h4>
+              <div class="edges-list" id="edgesList"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 4: Export & JSON -->
+        <div class="tab-pane" id="exportTab">
+          <div class="export-card">
+            <div class="export-actions">
+              <button type="button" class="btn btn-primary" id="downloadJsonBtn">Download Full JSON</button>
+              <button type="button" class="btn btn-secondary" id="downloadCsvBtn">Download Targets CSV</button>
+            </div>
+            <div class="json-viewer-wrapper">
+              <pre id="jsonViewer"><code></code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>Biomedical AI Discovery Pipeline &copy; 2026. Data sourced from Open Targets Platform & NCBI PubMed Entrez E-Utilities.</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

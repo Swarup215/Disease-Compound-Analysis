@@ -21,7 +21,11 @@ class TargetPrioritizer:
 
         sorted_results = sorted(
             fusion_results,
-            key=lambda result: result.fused_score,
+            key=lambda result: (
+                result.fused_score,
+                result.structured_score,
+                result.evidence_count
+            ),
             reverse=True
         )
 
@@ -38,11 +42,19 @@ class TargetPrioritizer:
                     rank=rank,
                     target_id=result.target_id,
                     target_symbol=result.target_symbol,
-                    fused_score=result.fused_score,
-                    structured_score=result.structured_score,
-                    literature_score=result.literature_score,
+                    target_name=result.target_name,
+                    fused_score=round(result.fused_score, 4),
+                    structured_score=round(result.structured_score, 4),
+                    literature_score=round(result.literature_score, 4),
                     evidence_count=result.evidence_count,
-                    literature_status=result.literature_status
+                    strong_evidence_count=result.strong_evidence_count,
+                    moderate_evidence_count=result.moderate_evidence_count,
+                    weak_evidence_count=result.weak_evidence_count,
+                    negative_evidence_count=result.negative_evidence_count,
+                    literature_status=result.literature_status,
+                    evidence_items=result.evidence_items,
+                    datatype_scores=result.datatype_scores,
+                    papers_referenced=result.papers_referenced
                 )
             )
 

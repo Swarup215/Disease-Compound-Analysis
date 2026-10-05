@@ -35,7 +35,9 @@ class EvidenceFusion:
         target_id: str,
         target_symbol: str,
         structured_score: float,
-        evidence_graph
+        evidence_graph,
+        target_name: str | None = None,
+        datatype_scores: dict[str, float] | None = None
     ) -> TargetFusionInput:
 
         target_evidence = [
@@ -62,14 +64,24 @@ class EvidenceFusion:
             if evidence.evidence_strength == "weak"
         )
 
+        negative_count = sum(
+            1
+            for evidence in target_evidence
+            if getattr(evidence, "direction", "") == "negative_or_no_association" or getattr(evidence, "relation", "") == "no_association"
+        )
+
         return TargetFusionInput(
             target_id=target_id,
             target_symbol=target_symbol,
+            target_name=target_name,
             structured_score=structured_score,
             evidence_count=len(target_evidence),
             strong_evidence_count=strong_count,
             moderate_evidence_count=moderate_count,
-            weak_evidence_count=weak_count
+            weak_evidence_count=weak_count,
+            negative_evidence_count=negative_count,
+            evidence_items=target_evidence,
+            datatype_scores=datatype_scores or {}
         )
 
     def calculate_literature_score(
@@ -91,16 +103,20 @@ class EvidenceFusion:
             / evidence.evidence_count
         )
 
-        return min(score, 1.0)
+        if evidence.negative_evidence_count > 0:
+            penalty = 1.0 - (evidence.negative_evidence_count / evidence.evidence_count * 0.5)
+            score *= max(0.1, penalty)
+
+        return min(round(score, 4), 1.0)
 
     def fuse(
-    self,
+        self,
         evidence: TargetFusionInput
     ) -> TargetFusionResult:
 
         literature_score = (
             self.calculate_literature_score(evidence)
-    )
+        )
 
         if evidence.evidence_count == 0:
             literature_status = "no_evidence"
@@ -115,15 +131,34 @@ class EvidenceFusion:
             * self.literature_weight
         )
 
+        # Extract unique papers referenced by evidence
+        unique_papers = {}
+        for ev in evidence.evidence_items:
+            pmid = getattr(ev, "pmid", None)
+            if pmid and pmid not in unique_papers:
+                unique_papers[pmid] = {
+                    "pmid": pmid,
+                    "title": getattr(ev, "title", None) or f"PubMed PMID: {pmid}",
+                    "journal": getattr(ev, "journal", None),
+                    "publication_date": getattr(ev, "publication_date", None),
+                    "doi": getattr(ev, "doi", None),
+                    "authors": getattr(ev, "authors", [])
+                }
+
         return TargetFusionResult(
             target_id=evidence.target_id,
             target_symbol=evidence.target_symbol,
+            target_name=evidence.target_name,
             structured_score=evidence.structured_score,
             evidence_count=evidence.evidence_count,
             strong_evidence_count=evidence.strong_evidence_count,
             moderate_evidence_count=evidence.moderate_evidence_count,
             weak_evidence_count=evidence.weak_evidence_count,
+            negative_evidence_count=evidence.negative_evidence_count,
             literature_score=literature_score,
             literature_status=literature_status,
-            fused_score=fused_score
+            fused_score=round(fused_score, 4),
+            evidence_items=evidence.evidence_items,
+            datatype_scores=evidence.datatype_scores,
+            papers_referenced=list(unique_papers.values())
         )
