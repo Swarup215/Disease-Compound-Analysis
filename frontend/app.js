@@ -175,7 +175,7 @@ async function startPipelineExecution(payload) {
       progressBarFill.style.width = `${pct}%`;
 
       if (pct >= 15 && pct < 35) setStep(1, "Retrieving disease-target associations from Open Targets...");
-      else if (pct >= 35 && pct < 55) setStep(2, `Harvesting PubMed scientific literature for targets...`);
+      else if (pct >= 35 && pct < 55) setStep(2, `Harvesting literature across PubMed, Europe PMC & Open Targets...`);
       else if (pct >= 55 && pct < 70) setStep(3, "Embedding passages & indexing FAISS vector store...");
       else if (pct >= 70 && pct < 82) setStep(4, "Extracting biological evidence assertions from text...");
       else if (pct >= 82 && pct < 90) setStep(5, "Fusing structured database & literature evidence...");
@@ -241,6 +241,12 @@ function renderResults(data) {
   document.getElementById('resTotalEvidence').textContent = metrics.total_evidence_extracted || 0;
   document.getElementById('resElapsed').textContent = `${data.elapsed_seconds || 0}s elapsed`;
   document.getElementById('tabPapersCount').textContent = papers.length;
+  const srcEl = document.getElementById('resPaperSourceLabel');
+  if (srcEl) {
+    srcEl.textContent = (metrics.literature_sources && metrics.literature_sources.length)
+      ? metrics.literature_sources.join(', ')
+      : 'PubMed, Europe PMC & Open Targets';
+  }
 
   // Disease ID badges
   const badgesContainer = document.getElementById('resDiseaseBadges');
@@ -279,7 +285,8 @@ function renderResults(data) {
                 ${ev.title || 'Scientific Publication Abstract'}
               </span>
               <div class="evidence-badges-row">
-                ${ev.pmid ? `<a href="${ev.pubmed_url || 'https://pubmed.ncbi.nlm.nih.gov/' + ev.pmid}" target="_blank" rel="noopener" class="pubmed-link">PMID: ${ev.pmid} ↗</a>` : ''}
+                ${ev.source ? `<span class="badge badge-indigo">${escapeHtml(ev.source)}</span>` : ''}
+                ${ev.pmid ? `<a href="${ev.url || ev.pubmed_url || ('https://pubmed.ncbi.nlm.nih.gov/' + ev.pmid)}" target="_blank" rel="noopener" class="pubmed-link">${ev.pmid.startsWith('PMC') || ev.pmid.startsWith('PPR') ? ev.pmid : 'PMID: ' + ev.pmid} ↗</a>` : (ev.url ? `<a href="${ev.url}" target="_blank" rel="noopener" class="pubmed-link">Paper Link ↗</a>` : '')}
                 <span class="badge badge-purple">${formatLabel(ev.evidence_type)}</span>
                 <span class="badge ${ev.relation === 'no_association' ? 'badge-rose' : 'badge-cyan'}">${ev.relation}</span>
                 <span class="badge ${ev.evidence_strength === 'strong' ? 'badge-emerald' : ev.evidence_strength === 'moderate' ? 'badge-cyan' : 'badge-amber'}">${ev.evidence_strength.toUpperCase()}</span>
@@ -406,17 +413,22 @@ function renderResults(data) {
     pCard.innerHTML = `
       <div class="paper-card-top">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-          <a href="${p.pubmed_url}" target="_blank" rel="noopener" class="pubmed-link">PMID: ${p.pmid} ↗</a>
+          <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+            <a href="${p.url || p.pubmed_url || ('https://pubmed.ncbi.nlm.nih.gov/' + p.pmid)}" target="_blank" rel="noopener" class="pubmed-link">${p.pmid.startsWith('PMC') || p.pmid.startsWith('PPR') ? p.pmid : 'PMID: ' + p.pmid} ↗</a>
+            ${p.source ? `<span class="badge badge-indigo">${escapeHtml(p.source)}</span>` : ''}
+            ${p.pmcid ? `<a href="https://europepmc.org/article/PMC/${p.pmcid}" target="_blank" rel="noopener" class="badge badge-emerald">PMC: ${escapeHtml(p.pmcid)} ↗</a>` : ''}
+          </div>
           <div style="display: flex; gap: 4px; flex-wrap: wrap;">
             ${(p.target_symbols || []).map(s => `<span class="badge badge-mono">${s}</span>`).join('')}
           </div>
         </div>
-        <h4 class="paper-card-title">${escapeHtml(p.title || 'Untitled PubMed Paper')}</h4>
+        <h4 class="paper-card-title">${escapeHtml(p.title || 'Untitled Scientific Paper')}</h4>
         <p class="paper-card-authors">${escapeHtml((p.authors || []).slice(0, 4).join(', '))}${p.authors && p.authors.length > 4 ? ' et al.' : ''}</p>
       </div>
       <div class="paper-card-meta">
         <span>🏛️ ${escapeHtml(p.journal || 'Journal')}</span>
         <span>📅 ${escapeHtml(p.publication_date || 'N/A')}</span>
+        ${p.doi ? `<span>🔗 DOI: ${escapeHtml(p.doi)}</span>` : ''}
       </div>
     `;
     papersList.appendChild(pCard);
