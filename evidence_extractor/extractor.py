@@ -160,7 +160,7 @@ class EvidenceExtractor:
                     evidence_strength=evidence_strength,
                     direction=direction,
                     confidence=confidence,
-                    source="PubMed"
+                    source=(chunk.metadata.get("source") if hasattr(chunk, "metadata") and chunk.metadata else "PubMed") or "PubMed"
                 )
             )
 
