@@ -1296,6 +1296,100 @@ body {
   color: var(--text-dim);
 }
 
-.hidden {
+/* =========================================================================
+   Disease Error Box & Input Error State
+   ========================================================================= */
+.disease-error-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  border-left: 4px solid var(--accent-rose);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin-top: 12px;
+  animation: slideDownFade 0.25s ease-out;
+  box-shadow: 0 4px 20px rgba(244, 63, 94, 0.18);
+}
+
+@keyframes slideDownFade {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.disease-error-icon {
+  flex-shrink: 0;
+  color: var(--accent-rose);
+  margin-top: 2px;
+  filter: drop-shadow(0 0 8px rgba(244, 63, 94, 0.5));
+}
+
+.disease-error-body {
+  flex: 1;
+}
+
+.disease-error-title {
+  color: #fda4af;
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-family: var(--font-heading);
+  margin-bottom: 4px;
+}
+
+.disease-error-msg {
+  color: #ffe4e6;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.disease-error-close {
+  background: transparent;
+  border: none;
+  color: #fda4af;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+
+.disease-error-close:hover {
+  opacity: 1;
+  color: #fff;
+}
+
+.text-input.input-error {
+  border-color: rgba(244, 63, 94, 0.8) !important;
+  box-shadow: 0 0 16px rgba(244, 63, 94, 0.35) !important;
+}
+
+.mini-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: miniSpin 0.75s linear infinite;
+  display: inline-block;
+}
+
+@keyframes miniSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.hidden,
+#progressSection.hidden,
+.progress-card.hidden,
+.disease-error-box.hidden {
   display: none !important;
 }

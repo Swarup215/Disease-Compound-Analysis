@@ -1,5 +1,10 @@
 // Biomedical AI — Frontend Application Logic
 
+// DEFENSIVE: Suppress any native alert popup dialogs completely
+window.alert = function(msg) {
+  console.warn("window.alert blocked:", msg);
+};
+
 let currentResults = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -52,14 +57,22 @@ document.addEventListener('DOMContentLoaded', () => {
   quickTags.forEach(tag => {
     tag.addEventListener('click', () => {
       diseaseInput.value = tag.getAttribute('data-disease');
+      clearDiseaseError();
       diseaseInput.focus();
     });
   });
 
   clearDiseaseBtn.addEventListener('click', () => {
     diseaseInput.value = '';
+    clearDiseaseError();
     diseaseInput.focus();
   });
+
+  diseaseInput.addEventListener('input', clearDiseaseError);
+  const dismissErrorBtn = document.getElementById('dismissErrorBtn');
+  if (dismissErrorBtn) {
+    dismissErrorBtn.addEventListener('click', clearDiseaseError);
+  }
 
   // Tab switching
   const tabBtns = document.querySelectorAll('.tab-btn');
@@ -80,16 +93,60 @@ document.addEventListener('DOMContentLoaded', () => {
     const disease = diseaseInput.value.trim();
     if (!disease) return;
 
-    const payload = {
-      disease: disease,
-      target_limit: parseInt(targetLimitSlider.value),
-      papers_per_target: parseInt(papersLimitSlider.value),
-      min_score: parseFloat(minScoreSlider.value),
-      structured_weight: parseFloat(structWeightSlider.value),
-      literature_weight: parseFloat(litWeightSlider.value)
-    };
+    clearDiseaseError();
 
-    startPipelineExecution(payload);
+    // Ensure progress section is completely hidden
+    progressSection.classList.add('hidden');
+    progressSection.style.display = 'none';
+    progressBarFill.style.width = '0%';
+    progressPercent.textContent = '0%';
+
+    // 1. Validate disease BEFORE starting pipeline execution
+    // Do NOT show the 7-step progress bar card yet!
+    const originalBtnHtml = runPipelineBtn.innerHTML;
+    runPipelineBtn.disabled = true;
+    runPipelineBtn.innerHTML = `
+      <span class="btn-icon"><div class="mini-spinner"></div></span>
+      <span class="btn-text">Verifying disease condition...</span>
+    `;
+
+    try {
+      const checkResp = await fetch(`/api/validate_disease?disease=${encodeURIComponent(disease)}`);
+      const checkData = await checkResp.json();
+
+      if (!checkResp.ok || !checkData.valid) {
+        // Validation failed: reset button and show error without touching pipeline
+        runPipelineBtn.disabled = false;
+        runPipelineBtn.innerHTML = originalBtnHtml;
+        progressSection.classList.add('hidden');
+        progressSection.style.display = 'none';
+        showDiseaseError(checkData.message || `Cannot fetch: Could not recognize or validate the disease '${disease}'. Please check the disease name and give the input again.`);
+        return;
+      }
+
+      // 2. Disease is VALID! Only now execute the pipeline and show progress
+      runPipelineBtn.innerHTML = originalBtnHtml;
+      progressSection.style.display = 'block';
+      progressSection.classList.remove('hidden');
+
+      const payload = {
+        disease: disease,
+        target_limit: parseInt(targetLimitSlider.value),
+        papers_per_target: parseInt(papersLimitSlider.value),
+        min_score: parseFloat(minScoreSlider.value),
+        structured_weight: parseFloat(structWeightSlider.value),
+        literature_weight: parseFloat(litWeightSlider.value)
+      };
+
+      startPipelineExecution(payload);
+
+    } catch (err) {
+      runPipelineBtn.disabled = false;
+      runPipelineBtn.innerHTML = originalBtnHtml;
+      progressSection.classList.add('hidden');
+      progressSection.style.display = 'none';
+      showDiseaseError(`Cannot fetch: ${err.message || 'Validation request failed. Please check the disease name and give the input again.'}`);
+    }
   });
 
   // Filtering targets
@@ -183,6 +240,8 @@ async function startPipelineExecution(payload) {
     }
   }, 400);
 
+  clearDiseaseError();
+
   try {
     const response = await fetch('/api/analyze', {
       method: 'POST',
@@ -193,8 +252,14 @@ async function startPipelineExecution(payload) {
     clearInterval(progressInterval);
 
     if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.message || 'Pipeline analysis failed');
+      let errMsg = 'Pipeline analysis failed';
+      try {
+        const errJson = await response.json();
+        if (errJson && errJson.message) {
+          errMsg = errJson.message;
+        }
+      } catch (_) {}
+      throw new Error(errMsg);
     }
 
     const data = await response.json();
@@ -219,11 +284,55 @@ async function startPipelineExecution(payload) {
 
   } catch (err) {
     clearInterval(progressInterval);
-    progressStageText.textContent = `Error: ${err.message}`;
+    progressSection.classList.add('hidden');
+    progressSection.style.display = 'none';
+    progressPercent.textContent = '0%';
+    progressBarFill.style.width = '0%';
     runPipelineBtn.disabled = false;
     runPipelineBtn.style.opacity = '1';
-    alert(`Pipeline error: ${err.message}`);
+    showDiseaseError(err.message || `Could not recognize '${payload.disease}'. Please enter a valid disease or disorder.`);
   }
+}
+
+function showDiseaseError(msg) {
+  // Always hide and reset the progress section completely
+  const progressSec = document.getElementById('progressSection');
+  if (progressSec) {
+    progressSec.classList.add('hidden');
+    progressSec.style.display = 'none';
+  }
+  const progFill = document.getElementById('progressBarFill');
+  if (progFill) progFill.style.width = '0%';
+  const progPct = document.getElementById('progressPercent');
+  if (progPct) progPct.textContent = '0%';
+  const stepItems = document.querySelectorAll('.step-item');
+  stepItems.forEach(s => s.className = 'step-item');
+
+  // Display the error alert box
+  const alertEl = document.getElementById('diseaseErrorAlert');
+  const msgEl = document.getElementById('diseaseErrorMessage');
+  const inputEl = document.getElementById('diseaseInput');
+  if (msgEl) msgEl.textContent = msg;
+  if (alertEl) {
+    alertEl.classList.remove('hidden');
+    alertEl.style.display = 'flex';
+    alertEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  if (inputEl) {
+    inputEl.classList.add('input-error');
+    inputEl.focus();
+    inputEl.select();
+  }
+}
+
+function clearDiseaseError() {
+  const alertEl = document.getElementById('diseaseErrorAlert');
+  const inputEl = document.getElementById('diseaseInput');
+  if (alertEl) {
+    alertEl.classList.add('hidden');
+    alertEl.style.display = 'none';
+  }
+  if (inputEl) inputEl.classList.remove('input-error');
 }
 
 function renderResults(data) {
