@@ -5,6 +5,8 @@ import sys
 import urllib.parse
 from pipeline import BiomedicalPipeline
 
+from disease_normalizer.suggester import get_disease_suggestions
+
 # Base directory for static files
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
@@ -46,12 +48,43 @@ class BiomedicalHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"status": "healthy", "service": "Biomedical AI Pipeline"}).encode("utf-8"))
             return
 
+        if path == "/api/suggest":
+            query_params = urllib.parse.parse_qs(parsed.query)
+            q = query_params.get("q", [""])[0].strip()
+            suggestions = get_disease_suggestions(q, limit=8) if q else []
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "success", "query": q, "suggestions": suggestions}).encode("utf-8"))
+            return
+
         # Default static file handling
         return super().do_GET()
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+
+        if path == "/api/suggest":
+            content_length = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_length)
+            try:
+                payload = json.loads(post_data.decode("utf-8"))
+                q = payload.get("query", "").strip()
+                suggestions = get_disease_suggestions(q, limit=8) if q else []
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "success", "query": q, "suggestions": suggestions}).encode("utf-8"))
+            except Exception as exc:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(exc)}).encode("utf-8"))
+            return
 
         if path == "/api/analyze":
             content_length = int(self.headers.get("Content-Length", 0))
@@ -65,7 +98,10 @@ class BiomedicalHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_header("Content-Type", "application/json")
                     self._send_cors_headers()
                     self.end_headers()
-                    self.wfile.write(json.dumps({"status": "error", "message": "Disease name cannot be empty"}).encode("utf-8"))
+                    self.wfile.write(json.dumps({
+                        "status": "error",
+                        "message": "Disease name cannot be empty"
+                    }).encode("utf-8"))
                     return
 
                 target_limit = int(payload.get("target_limit", 10))
@@ -90,6 +126,20 @@ class BiomedicalHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps(result).encode("utf-8"))
 
+            except ValueError as exc:
+                suggestions = getattr(exc, "suggestions", [])
+                if not suggestions and 'disease' in locals() and disease:
+                    suggestions = get_disease_suggestions(disease)
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "unresolved_disease",
+                    "message": str(exc),
+                    "query": disease if 'disease' in locals() else "",
+                    "suggestions": suggestions
+                }).encode("utf-8"))
             except Exception as exc:
                 self.send_response(500)
                 self.send_header("Content-Type", "application/json")

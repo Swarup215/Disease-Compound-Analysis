@@ -48,16 +48,147 @@ document.addEventListener('DOMContentLoaded', () => {
     structWeightVal.textContent = structVal.toFixed(2);
   });
 
+  // Autocomplete & Spelling Suggestion Dropdown
+  const diseaseSuggestions = document.getElementById('diseaseSuggestions');
+  const diseaseErrorAlert = document.getElementById('diseaseErrorAlert');
+  let suggestTimeout = null;
+  let activeIndex = -1;
+
+  function hideSuggestions() {
+    if (diseaseSuggestions) {
+      diseaseSuggestions.classList.add('hidden');
+      diseaseSuggestions.innerHTML = '';
+    }
+    activeIndex = -1;
+  }
+
+  function hideErrorAlert() {
+    if (diseaseErrorAlert) {
+      diseaseErrorAlert.classList.add('hidden');
+      diseaseErrorAlert.innerHTML = '';
+    }
+  }
+
+  async function fetchSuggestions(query) {
+    if (!query || query.length < 2) {
+      hideSuggestions();
+      return;
+    }
+    try {
+      const resp = await fetch(`/api/suggest?q=${encodeURIComponent(query)}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderSuggestions(data.suggestions || []);
+    } catch (e) {
+      console.warn("Suggestion fetch error:", e);
+    }
+  }
+
+  function renderSuggestions(suggestions) {
+    if (!diseaseSuggestions || !suggestions || suggestions.length === 0) {
+      hideSuggestions();
+      return;
+    }
+
+    diseaseSuggestions.innerHTML = '';
+    activeIndex = -1;
+
+    suggestions.forEach((item, idx) => {
+      const div = document.createElement('div');
+      div.className = 'suggestion-item';
+      div.setAttribute('data-idx', idx);
+
+      const isSpelling = item.source === 'Spelling Correction';
+      const badgeClass = isSpelling ? 'suggestion-badge spelling' : 'suggestion-badge';
+
+      div.innerHTML = `
+        <div class="suggestion-main">
+          <span class="suggestion-name">${escapeHtml(item.name)}</span>
+          <span class="suggestion-id">${escapeHtml(item.id)}</span>
+        </div>
+        <span class="${badgeClass}">${escapeHtml(item.source)}</span>
+      `;
+
+      div.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        selectSuggestion(item.name);
+      });
+
+      diseaseSuggestions.appendChild(div);
+    });
+
+    diseaseSuggestions.classList.remove('hidden');
+  }
+
+  function selectSuggestion(name) {
+    diseaseInput.value = name;
+    hideSuggestions();
+    hideErrorAlert();
+    diseaseInput.focus();
+  }
+
+  diseaseInput.addEventListener('input', (e) => {
+    hideErrorAlert();
+    clearTimeout(suggestTimeout);
+    const val = e.target.value.trim();
+    suggestTimeout = setTimeout(() => fetchSuggestions(val), 150);
+  });
+
+  diseaseInput.addEventListener('keydown', (e) => {
+    if (!diseaseSuggestions) return;
+    const items = diseaseSuggestions.querySelectorAll('.suggestion-item');
+    if (diseaseSuggestions.classList.contains('hidden') || items.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeIndex = (activeIndex + 1) % items.length;
+      updateActiveSuggestion(items);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIndex = (activeIndex - 1 + items.length) % items.length;
+      updateActiveSuggestion(items);
+    } else if (e.key === 'Enter') {
+      if (activeIndex >= 0 && activeIndex < items.length) {
+        e.preventDefault();
+        const name = items[activeIndex].querySelector('.suggestion-name').textContent;
+        selectSuggestion(name);
+      }
+    } else if (e.key === 'Escape') {
+      hideSuggestions();
+    }
+  });
+
+  function updateActiveSuggestion(items) {
+    items.forEach((item, i) => {
+      if (i === activeIndex) {
+        item.classList.add('active');
+        item.scrollIntoView({ block: 'nearest' });
+      } else {
+        item.classList.remove('active');
+      }
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    if (diseaseInput && diseaseSuggestions && !diseaseInput.contains(e.target) && !diseaseSuggestions.contains(e.target)) {
+      hideSuggestions();
+    }
+  });
+
   // Quick disease tags
   quickTags.forEach(tag => {
     tag.addEventListener('click', () => {
       diseaseInput.value = tag.getAttribute('data-disease');
+      hideSuggestions();
+      hideErrorAlert();
       diseaseInput.focus();
     });
   });
 
   clearDiseaseBtn.addEventListener('click', () => {
     diseaseInput.value = '';
+    hideSuggestions();
+    hideErrorAlert();
     diseaseInput.focus();
   });
 
@@ -77,6 +208,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Form submission
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    hideSuggestions();
+    hideErrorAlert();
     const disease = diseaseInput.value.trim();
     if (!disease) return;
 
@@ -193,8 +326,10 @@ async function startPipelineExecution(payload) {
     clearInterval(progressInterval);
 
     if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.message || 'Pipeline analysis failed');
+      const errData = await response.json();
+      const errorObj = new Error(errData.message || 'Pipeline analysis failed');
+      errorObj.data = errData;
+      throw errorObj;
     }
 
     const data = await response.json();
@@ -219,11 +354,56 @@ async function startPipelineExecution(payload) {
 
   } catch (err) {
     clearInterval(progressInterval);
-    progressStageText.textContent = `Error: ${err.message}`;
+    progressSection.classList.add('hidden');
     runPipelineBtn.disabled = false;
     runPipelineBtn.style.opacity = '1';
-    alert(`Pipeline error: ${err.message}`);
+
+    if (err.data && (err.data.suggestions || err.data.status === 'unresolved_disease')) {
+      renderErrorAlert(err.data.query || payload.disease, err.data.message, err.data.suggestions);
+    } else {
+      alert(`Pipeline error: ${err.message}`);
+    }
   }
+}
+
+function renderErrorAlert(query, message, suggestions) {
+  const alertEl = document.getElementById('diseaseErrorAlert');
+  if (!alertEl) return;
+
+  const pillsHtml = (suggestions || []).map(s => `
+    <button type="button" class="suggestion-pill-btn" data-name="${escapeHtml(s.name)}">
+      ✨ ${escapeHtml(s.name)} (${escapeHtml(s.id)})
+    </button>
+  `).join('');
+
+  alertEl.innerHTML = `
+    <div class="alert-warning-title">
+      <span>⚠️ Unrecognized or Misspelled Disease Condition</span>
+    </div>
+    <div>
+      Could not find target associations for <strong>"${escapeHtml(query)}"</strong>.
+      Please select a suggested correct spelling below or pick from the suggestion bar:
+    </div>
+    <div class="suggestion-pills-row">
+      ${pillsHtml.length ? pillsHtml : '<span style="font-size: 0.8rem; color: var(--text-dim);">No close spelling matches found. Try typing another term.</span>'}
+    </div>
+  `;
+
+  alertEl.classList.remove('hidden');
+
+  alertEl.querySelectorAll('.suggestion-pill-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.getAttribute('data-name');
+      const diseaseInput = document.getElementById('diseaseInput');
+      if (diseaseInput && name) {
+        diseaseInput.value = name;
+        alertEl.classList.add('hidden');
+        document.getElementById('pipelineForm').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+      }
+    });
+  });
+
+  alertEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function renderResults(data) {

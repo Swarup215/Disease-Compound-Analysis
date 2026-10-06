@@ -3,6 +3,7 @@ import time
 
 from disease_normalizer.normalizer import DiseaseNormalizer
 from disease_normalizer.models import DiseaseConcept
+from disease_normalizer.suggester import get_disease_suggestions
 from structured_retriever.retriever import StructuredRetriever
 from structured_retriever.model import StructuredRetrievalResult, TargetCandidate
 from literature_retriever.retriever import LiteratureRetriever
@@ -117,10 +118,6 @@ class BiomedicalPipeline:
         for cand in disease_concept.candidates:
             if cand.ontology in ("mondo", "efo") and cand.id and cand.id not in candidate_ids:
                 candidate_ids.append(cand.id)
-
-        if not candidate_ids:
-            candidate_ids.append("MONDO:0005148")
-
         synonyms_list = list(set(disease_concept.synonyms.exact + disease_concept.synonyms.related))
 
         # =========================================================================
@@ -129,28 +126,29 @@ class BiomedicalPipeline:
         update_progress("Retrieving disease-target associations from Open Targets...", 25)
 
         structured_result = None
-        disease_id = candidate_ids[0]
+        disease_id = candidate_ids[0] if candidate_ids else None
         targets = []
 
-        for cid in candidate_ids:
-            try:
-                res = self.structured_retriever.retrieve_targets(
-                    disease_id=cid,
-                    page_size=100,
-                    max_targets=500,
-                    min_score=min_score,
-                    top_n=target_limit
-                )
-                if res and res.targets:
-                    structured_result = res
-                    disease_id = cid
-                    targets = res.targets[:target_limit]
-                    break
-            except Exception:
-                continue
+        if candidate_ids:
+            for cid in candidate_ids:
+                try:
+                    res = self.structured_retriever.retrieve_targets(
+                        disease_id=cid,
+                        page_size=100,
+                        max_targets=500,
+                        min_score=min_score,
+                        top_n=target_limit
+                    )
+                    if res and res.targets:
+                        structured_result = res
+                        disease_id = cid
+                        targets = res.targets[:target_limit]
+                        break
+                except Exception:
+                    continue
 
-        if not targets:
-            # Fallback retry without min_score filter across candidate IDs
+        if not targets and candidate_ids:
+            # Retry without min_score filter across candidate IDs
             for cid in candidate_ids:
                 try:
                     res = self.structured_retriever.retrieve_targets(
@@ -169,16 +167,16 @@ class BiomedicalPipeline:
                     continue
 
         if not targets:
-            # Ultimate fallback to Type 2 diabetes MONDO:0005148
-            disease_id = "MONDO:0005148"
-            structured_result = self.structured_retriever.retrieve_targets(
-                disease_id=disease_id,
-                page_size=100,
-                max_targets=100,
-                min_score=0.0,
-                top_n=target_limit
-            )
-            targets = structured_result.targets[:target_limit]
+            # Do NOT fallback to any default disease.
+            # Get disease suggestions based on spelling/fuzzy matching for the input query.
+            suggestions = get_disease_suggestions(disease_query)
+            sugg_str = ", ".join([f"'{s['name']}'" for s in suggestions[:4]]) if suggestions else ""
+            msg = f"Could not find valid disease condition or target associations for '{disease_query}'."
+            if sugg_str:
+                msg += f" Did you mean: {sugg_str}?"
+            err = ValueError(msg)
+            err.suggestions = suggestions
+            raise err
 
         target_symbols = [t.symbol for t in targets if t.symbol]
 

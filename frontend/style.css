@@ -1299,3 +1299,128 @@ body {
 .hidden {
   display: none !important;
 }
+
+/* =========================================================================
+   Real-Time Autocomplete Suggestions Dropdown & Alert Cards
+   ========================================================================= */
+.suggestions-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: #0f172a;
+  border: 1px solid rgba(6, 182, 212, 0.4);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), 0 0 16px rgba(6, 182, 212, 0.15);
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+  backdrop-filter: blur(20px);
+}
+
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  gap: 12px;
+}
+
+.suggestion-item:hover,
+.suggestion-item.active {
+  background: rgba(6, 182, 212, 0.15);
+  border-left: 3px solid var(--primary);
+  padding-left: 17px;
+}
+
+.suggestion-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.suggestion-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: #f8fafc;
+}
+
+.suggestion-id {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--primary);
+}
+
+.suggestion-badge {
+  font-size: 0.70rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  white-space: nowrap;
+}
+
+.suggestion-badge.spelling {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+/* Alert Warning Card */
+.alert-card {
+  margin-top: 12px;
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.alert-warning {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+.alert-warning-title {
+  font-weight: 700;
+  font-size: 0.94rem;
+  color: #f87171;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.suggestion-pills-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.suggestion-pill-btn {
+  background: rgba(6, 182, 212, 0.15);
+  border: 1px solid rgba(6, 182, 212, 0.4);
+  color: #38bdf8;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.suggestion-pill-btn:hover {
+  background: var(--primary);
+  color: #0f172a;
+  box-shadow: 0 0 12px var(--primary);
+  transform: translateY(-1px);
+}

@@ -50,15 +50,19 @@
           <div class="form-group full-width">
             <label for="diseaseInput" class="form-label">
               <span>Target Disease / Disorder</span>
-              <span class="label-hint">Accepts common disease names, synonyms, or ontology IDs</span>
+              <span class="label-hint">Type disease name with real-time spelling suggestions & ontology matching</span>
             </label>
-            <div class="input-wrapper">
-              <input type="text" id="diseaseInput" class="text-input" placeholder="e.g. Type 2 diabetes mellitus, Alzheimer, Asthma, Breast cancer" required value="Type 2 diabetes">
+            <div class="input-wrapper" style="position: relative;">
+              <input type="text" id="diseaseInput" class="text-input" placeholder="Enter disease name (e.g. Type 2 diabetes, Alzheimer's, Asthma)..." required autocomplete="off">
               <button type="button" class="clear-btn" id="clearDiseaseBtn" title="Clear input">&times;</button>
+              <!-- Real-time Autocomplete / Spelling Suggestion Dropdown -->
+              <div id="diseaseSuggestions" class="suggestions-dropdown hidden"></div>
             </div>
+            <!-- Interactive Error & Spelling Alert Card -->
+            <div id="diseaseErrorAlert" class="alert-card alert-warning hidden"></div>
             <!-- Quick Suggestions -->
             <div class="quick-tags">
-              <span class="tag-label">Quick Suggestions:</span>
+              <span class="tag-label">Sample Diseases:</span>
               <button type="button" class="disease-tag" data-disease="Type 2 diabetes">Type 2 Diabetes</button>
               <button type="button" class="disease-tag" data-disease="Alzheimer Disease">Alzheimer's</button>
               <button type="button" class="disease-tag" data-disease="Parkinson Disease">Parkinson's</button>
