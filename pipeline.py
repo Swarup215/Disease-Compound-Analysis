@@ -115,11 +115,14 @@ class BiomedicalPipeline:
             candidate_ids.append(disease_concept.identifiers.efo)
 
         for cand in disease_concept.candidates:
-            if cand.ontology in ("mondo", "efo") and cand.id and cand.id not in candidate_ids:
+            if getattr(cand, "score", 1.0) > 0.0 and cand.ontology in ("mondo", "efo") and cand.id and cand.id not in candidate_ids:
                 candidate_ids.append(cand.id)
 
         if not candidate_ids:
-            candidate_ids.append("MONDO:0005148")
+            raise ValueError(
+                f"Could not recognize or validate the disease '{disease_query}' in medical ontologies. "
+                "Please check the disease name and give the input again."
+            )
 
         synonyms_list = list(set(disease_concept.synonyms.exact + disease_concept.synonyms.related))
 
@@ -129,7 +132,7 @@ class BiomedicalPipeline:
         update_progress("Retrieving disease-target associations from Open Targets...", 25)
 
         structured_result = None
-        disease_id = candidate_ids[0]
+        disease_id = None
         targets = []
 
         for cid in candidate_ids:
@@ -169,16 +172,17 @@ class BiomedicalPipeline:
                     continue
 
         if not targets:
-            # Ultimate fallback to Type 2 diabetes MONDO:0005148
-            disease_id = "MONDO:0005148"
-            structured_result = self.structured_retriever.retrieve_targets(
-                disease_id=disease_id,
-                page_size=100,
-                max_targets=100,
-                min_score=0.0,
-                top_n=target_limit
+            raise ValueError(
+                f"No associated target proteins found for disease '{disease_query}'. "
+                "Please check the disease name and give the input again."
             )
-            targets = structured_result.targets[:target_limit]
+
+        if structured_result and structured_result.disease_name:
+            if not disease_concept.canonical_name:
+                disease_concept.canonical_name = structured_result.disease_name
+                canonical_name = structured_result.disease_name
+        if not disease_concept.canonical_id:
+            disease_concept.canonical_id = disease_id
 
         target_symbols = [t.symbol for t in targets if t.symbol]
 

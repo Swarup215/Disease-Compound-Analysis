@@ -1,3 +1,4 @@
+import concurrent.futures
 from typing import Dict, List
 
 from .models import (
@@ -45,25 +46,24 @@ class DiseaseNormalizer:
         candidates = []
 
         # ---------------------------------
-        # Search each ontology
+        # Search ontologies in parallel
         # ---------------------------------
-
-        for ontology in SUPPORTED_ONTOLOGIES:
-
-            results = self.ols.search(
-                query=cleaned_name,
-                ontology=ontology,
-                rows=10
-            )
-
-            for result in results:
-
-                candidate = score_candidate(
-                    cleaned_name,
-                    result
-                )
-
-                candidates.append(candidate)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(SUPPORTED_ONTOLOGIES)) as executor:
+            future_to_ont = {
+                executor.submit(self.ols.search, cleaned_name, ontology, 10): ontology
+                for ontology in SUPPORTED_ONTOLOGIES
+            }
+            for future in concurrent.futures.as_completed(future_to_ont):
+                try:
+                    results = future.result()
+                    for result in results:
+                        candidate = score_candidate(
+                            cleaned_name,
+                            result
+                        )
+                        candidates.append(candidate)
+                except Exception:
+                    pass
 
         # ---------------------------------
         # Sort candidates
