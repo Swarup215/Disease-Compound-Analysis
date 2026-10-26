@@ -50,15 +50,19 @@
           <div class="form-group full-width">
             <label for="diseaseInput" class="form-label">
               <span>Target Disease / Disorder</span>
-              <span class="label-hint">Accepts common disease names, synonyms, or ontology IDs</span>
+              <span class="label-hint">Type disease name with real-time spelling suggestions & ontology matching</span>
             </label>
-            <div class="input-wrapper">
-              <input type="text" id="diseaseInput" class="text-input" placeholder="e.g. Type 2 diabetes mellitus, Alzheimer, Asthma, Breast cancer" required value="Type 2 diabetes">
+            <div class="input-wrapper" style="position: relative;">
+              <input type="text" id="diseaseInput" class="text-input" placeholder="Enter disease name (e.g. Type 2 diabetes, Alzheimer's, Asthma)..." required autocomplete="off">
               <button type="button" class="clear-btn" id="clearDiseaseBtn" title="Clear input">&times;</button>
+              <!-- Real-time Autocomplete / Spelling Suggestion Dropdown -->
+              <div id="diseaseSuggestions" class="suggestions-dropdown hidden"></div>
             </div>
+            <!-- Interactive Error & Spelling Alert Card -->
+            <div id="diseaseErrorAlert" class="alert-card alert-warning hidden"></div>
             <!-- Quick Suggestions -->
             <div class="quick-tags">
-              <span class="tag-label">Quick Suggestions:</span>
+              <span class="tag-label">Sample Diseases:</span>
               <button type="button" class="disease-tag" data-disease="Type 2 diabetes">Type 2 Diabetes</button>
               <button type="button" class="disease-tag" data-disease="Alzheimer Disease">Alzheimer's</button>
               <button type="button" class="disease-tag" data-disease="Parkinson Disease">Parkinson's</button>
@@ -87,7 +91,7 @@
                 <span class="param-value" id="papersLimitVal">3</span>
               </div>
               <input type="range" id="papersLimitSlider" min="1" max="10" step="1" value="3" class="range-slider">
-              <span class="param-hint">PubMed articles harvested per candidate target</span>
+              <span class="param-hint">Articles harvested per candidate target across PubMed, Europe PMC & Open Targets</span>
             </div>
           </div>
 
@@ -113,7 +117,7 @@
                     <span class="param-value" id="litWeightVal">0.40</span>
                   </div>
                   <input type="range" id="litWeightSlider" min="0.0" max="1.0" step="0.05" value="0.40" class="range-slider">
-                  <span class="param-hint">PubMed RAG biological evidence score weight</span>
+                  <span class="param-hint">Multi-source literature RAG biological evidence score weight</span>
                 </div>
                 <div class="param-card">
                   <div class="param-header">
@@ -168,7 +172,7 @@
           </div>
           <div class="step-item" id="step3">
             <span class="step-dot"></span>
-            <span class="step-label">3. PubMed Harvesting</span>
+            <span class="step-label">3. Multi-Source Literature</span>
           </div>
           <div class="step-item" id="step4">
             <span class="step-dot"></span>
@@ -214,7 +218,7 @@
             <div class="metric-content">
               <span class="metric-label">Literature Papers Reviewed</span>
               <h3 class="metric-value" id="resTotalPapers">0</h3>
-              <span class="metric-sub">PubMed verified</span>
+              <span class="metric-sub" id="resPaperSourceLabel">PubMed, Europe PMC & Open Targets</span>
             </div>
           </div>
           <div class="metric-card">
@@ -322,7 +326,7 @@
 
     <!-- Footer -->
     <footer class="app-footer">
-      <p>Biomedical AI Discovery Pipeline &copy; 2026. Data sourced from Open Targets Platform & NCBI PubMed Entrez E-Utilities.</p>
+      <p>Biomedical AI Discovery Pipeline &copy; 2026. Data sourced from Open Targets Platform, NCBI PubMed &amp; EMBL-EBI Europe PMC.</p>
     </footer>
   </div>
 

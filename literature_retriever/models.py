@@ -17,12 +17,18 @@ class Paper(BaseModel):
     target_symbols: List[str] = Field(
         default_factory=list
     )
+    source: str = "PubMed"
+    url: Optional[str] = None
+    pmcid: Optional[str] = None
 
 
 class LiteratureRetrievalResult(BaseModel):
     query: str
     total_found: int = 0
     retrieved_papers: int = 0
+    sources: List[str] = Field(
+        default_factory=list
+    )
     papers: List[Paper] = Field(
         default_factory=list
     )
@@ -34,6 +40,9 @@ class TargetLiteratureResult(BaseModel):
     query: str
     total_found: int = 0
     retrieved_papers: int = 0
+    sources: List[str] = Field(
+        default_factory=list
+    )
     papers: List[Paper] = Field(
         default_factory=list
     )
@@ -44,6 +53,9 @@ class BatchLiteratureResult(BaseModel):
     total_targets: int = 0
     processed_targets: int = 0
     total_papers: int = 0
+    sources: List[str] = Field(
+        default_factory=list
+    )
     papers: List[Paper] = Field(
         default_factory=list
     )

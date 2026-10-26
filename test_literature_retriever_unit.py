@@ -102,3 +102,61 @@ def test_paper_creation_from_dictionary():
     assert paper.pmid == "123456"
     assert paper.title == "Example paper"
     assert paper.authors == ["Smith J"]
+
+
+def test_europe_pmc_client_initialization():
+    from literature_retriever.europe_pmc import EuropePMCClient
+    client = EuropePMCClient()
+    assert client.session is not None
+    assert client.timeout > 0
+
+
+def test_europe_pmc_article_parsing():
+    from literature_retriever.europe_pmc import EuropePMCClient
+    client = EuropePMCClient()
+
+    sample_items = [
+        {
+            "id": "33101408",
+            "source": "MED",
+            "pmid": "33101408",
+            "pmcid": "PMC7680000",
+            "doi": "10.1000/182",
+            "title": "KCNJ11 Mutations in <i>Diabetes</i>",
+            "abstractText": "<b>Background</b>: ATP-sensitive K+ channels play a role.",
+            "pubYear": "2020",
+            "journalInfo": {"journal": {"title": "Journal of Diabetes"}},
+            "authorList": {"author": [{"fullName": "Doe John"}, {"fullName": "Smith Jane"}]}
+        },
+        {
+            "id": "PPR12345",
+            "source": "PPR",
+            "title": "Preprint on Target Regulation",
+            "abstractText": "Preprint abstract content.",
+            "pubYear": "2026",
+            "authorString": "Alpha A, Beta B"
+        }
+    ]
+
+    parsed = client.parse_articles(sample_items)
+    assert len(parsed) == 2
+    
+    med_article = parsed[0]
+    assert med_article["pmid"] == "33101408"
+    assert med_article["title"] == "KCNJ11 Mutations in Diabetes"
+    assert "ATP-sensitive" in med_article["abstract"]
+    assert med_article["journal"] == "Journal of Diabetes"
+    assert med_article["source"] == "Europe PMC (MEDLINE)"
+    assert len(med_article["authors"]) == 2
+
+    ppr_article = parsed[1]
+    assert ppr_article["pmid"] == "PPR12345"
+    assert ppr_article["source"] == "Europe PMC (Preprint)"
+    assert len(ppr_article["authors"]) == 2
+
+
+def test_multi_source_retriever_initialization():
+    retriever = LiteratureRetriever()
+    assert retriever.pubmed is not None
+    assert retriever.europe_pmc is not None
+    assert retriever.open_targets_lit is not None

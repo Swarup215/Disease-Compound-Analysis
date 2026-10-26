@@ -137,13 +137,13 @@ Retrieves known disease-target associations from Open Targets.
 ---
 
 ### 3.3. `literature_retriever/`
-Automates literature collection from NCBI PubMed.
+Harvests scientific literature across NCBI PubMed, EMBL-EBI Europe PMC, and Open Targets Platform.
 
 - **`models.py`**:
-  - `Paper`: PMID, title, abstract, journal, publication date, DOI, authors list, and list of associated target symbols.
-  - `LiteratureRetrievalResult`: Single query result with total found count, retrieved count, and list of `Paper` objects.
-  - `TargetLiteratureResult`: Literature result specific to a target symbol and disease name.
-  - `BatchLiteratureResult`: Aggregated result across multiple targets, deduplicating papers across targets while appending target symbols to each paper.
+  - `Paper`: PMID, title, abstract, journal, publication date, DOI, authors list, list of associated target symbols, source (`PubMed`, `Europe PMC`, `Open Targets`), URL, and PMCID.
+  - `LiteratureRetrievalResult`: Single query result with total found count, retrieved count, sources list, and list of `Paper` objects.
+  - `TargetLiteratureResult`: Literature result specific to a target symbol and disease name with sources list.
+  - `BatchLiteratureResult`: Aggregated result across multiple targets, deduplicating papers across targets, tracking source origins, and appending target symbols.
 - **`query_builder.py`**:
   - `LiteratureQueryBuilder`: Generates boolean search strings in the format `"{disease_name}" AND {target_symbol}`. Validates non-empty input.
 - **`pubmed.py`**:
@@ -151,11 +151,18 @@ Automates literature collection from NCBI PubMed.
     - `search(query, retmax)`: Calls `esearch.fcgi` to obtain matching PMIDs and count.
     - `fetch(pmids)`: Calls `efetch.fcgi` to download XML abstracts.
     - `parse_articles(xml_text)`: Uses `xml.etree.ElementTree` to parse `PubmedArticle` nodes, extracting title, abstract sections, journal title, pub date, DOI, and author names.
+- **`europe_pmc.py`**:
+  - `EuropePMCClient`: Interacts with EMBL-EBI Europe PMC REST API (`https://www.ebi.ac.uk/europepmc/webservices/rest/search`):
+    - `search(query, page_size)`: Searches Europe PMC for PubMed, PMC full texts, and preprints (bioRxiv/medRxiv).
+    - `parse_articles(raw_items)`: Standardizes records, extracts authors, journals, DOIs, cleans HTML tags, and formats direct web URLs.
+- **`open_targets_literature.py`**:
+  - `OpenTargetsLiteratureClient`: Queries Open Targets Platform GraphQL API for text-mined and curated disease-target publication PMIDs (`datasourceIds: ["europepmc"]`).
 - **`retriever.py`**:
   - `LiteratureRetriever`:
-    - `search(query, top_n)`: Core single-query retrieval.
-    - `search_target(disease_name, target_symbol, top_n)`: Formulates query via `LiteratureQueryBuilder` and returns `TargetLiteratureResult`.
-    - `search_targets(disease_name, target_symbols, papers_per_target)`: Iterates over target list, merges papers by PMID, and accumulates unique papers while associating them with multiple target symbols.
+    - `search(query, top_n, include_europe_pmc)`: Searches PubMed and Europe PMC concurrently, merges and deduplicates papers by PMID and DOI, and aggregates sources.
+    - `search_target(disease_name, target_symbol, top_n, disease_id, target_ensembl_id)`: Formulates query, searches primary literature, and complements with Open Targets verified literature evidence.
+    - `search_targets(disease_name, target_symbols, papers_per_target, disease_id, target_id_map)`: Batch execution across all candidate targets with multi-source deduplication and cross-target linking.
+
 
 ---
 

@@ -3,6 +3,7 @@ import time
 
 from disease_normalizer.normalizer import DiseaseNormalizer
 from disease_normalizer.models import DiseaseConcept
+from disease_normalizer.suggester import get_disease_suggestions
 from structured_retriever.retriever import StructuredRetriever
 from structured_retriever.model import StructuredRetrievalResult, TargetCandidate
 from literature_retriever.retriever import LiteratureRetriever
@@ -117,10 +118,6 @@ class BiomedicalPipeline:
         for cand in disease_concept.candidates:
             if cand.ontology in ("mondo", "efo") and cand.id and cand.id not in candidate_ids:
                 candidate_ids.append(cand.id)
-
-        if not candidate_ids:
-            candidate_ids.append("MONDO:0005148")
-
         synonyms_list = list(set(disease_concept.synonyms.exact + disease_concept.synonyms.related))
 
         # =========================================================================
@@ -129,28 +126,29 @@ class BiomedicalPipeline:
         update_progress("Retrieving disease-target associations from Open Targets...", 25)
 
         structured_result = None
-        disease_id = candidate_ids[0]
+        disease_id = candidate_ids[0] if candidate_ids else None
         targets = []
 
-        for cid in candidate_ids:
-            try:
-                res = self.structured_retriever.retrieve_targets(
-                    disease_id=cid,
-                    page_size=100,
-                    max_targets=500,
-                    min_score=min_score,
-                    top_n=target_limit
-                )
-                if res and res.targets:
-                    structured_result = res
-                    disease_id = cid
-                    targets = res.targets[:target_limit]
-                    break
-            except Exception:
-                continue
+        if candidate_ids:
+            for cid in candidate_ids:
+                try:
+                    res = self.structured_retriever.retrieve_targets(
+                        disease_id=cid,
+                        page_size=100,
+                        max_targets=500,
+                        min_score=min_score,
+                        top_n=target_limit
+                    )
+                    if res and res.targets:
+                        structured_result = res
+                        disease_id = cid
+                        targets = res.targets[:target_limit]
+                        break
+                except Exception:
+                    continue
 
-        if not targets:
-            # Fallback retry without min_score filter across candidate IDs
+        if not targets and candidate_ids:
+            # Retry without min_score filter across candidate IDs
             for cid in candidate_ids:
                 try:
                     res = self.structured_retriever.retrieve_targets(
@@ -169,29 +167,33 @@ class BiomedicalPipeline:
                     continue
 
         if not targets:
-            # Ultimate fallback to Type 2 diabetes MONDO:0005148
-            disease_id = "MONDO:0005148"
-            structured_result = self.structured_retriever.retrieve_targets(
-                disease_id=disease_id,
-                page_size=100,
-                max_targets=100,
-                min_score=0.0,
-                top_n=target_limit
-            )
-            targets = structured_result.targets[:target_limit]
+            # Do NOT fallback to any default disease.
+            # Get disease suggestions based on spelling/fuzzy matching for the input query.
+            suggestions = get_disease_suggestions(disease_query)
+            sugg_str = ", ".join([f"'{s['name']}'" for s in suggestions[:4]]) if suggestions else ""
+            msg = f"Could not find valid disease condition or target associations for '{disease_query}'."
+            if sugg_str:
+                msg += f" Did you mean: {sugg_str}?"
+            err = ValueError(msg)
+            err.suggestions = suggestions
+            raise err
 
         target_symbols = [t.symbol for t in targets if t.symbol]
 
         # =========================================================================
-        # 3. PubMed Literature Retrieval
+        # 3. Multi-Source Literature Retrieval (PubMed, Europe PMC, Open Targets)
         # =========================================================================
-        update_progress(f"Searching & harvesting PubMed literature for {len(target_symbols)} targets...", 45)
+        target_id_map = {t.symbol: t.id for t in targets if t.symbol and t.id}
+        update_progress(f"Harvesting literature across PubMed, Europe PMC & Open Targets for {len(target_symbols)} targets...", 45)
         
         batch_literature = self.literature_retriever.search_targets(
             disease_name=canonical_name,
             target_symbols=target_symbols,
-            papers_per_target=papers_per_target
+            papers_per_target=papers_per_target,
+            disease_id=disease_id,
+            target_id_map=target_id_map
         )
+
 
         # =========================================================================
         # 4. RAG Pipeline (Indexing & Semantic Retrieval)
@@ -318,14 +320,23 @@ class BiomedicalPipeline:
             # Format evidence items for clean JSON output
             ev_list = []
             for ev in pt.evidence_items:
+                ev_pmid = getattr(ev, "pmid", None)
+                matched_paper = paper_map.get(ev_pmid) if ev_pmid else None
+                paper_url = getattr(matched_paper, "url", None) if matched_paper else None
+                if not paper_url and ev_pmid:
+                    paper_url = f"https://pubmed.ncbi.nlm.nih.gov/{ev_pmid}/"
+                ev_source = getattr(ev, "source", None) or (getattr(matched_paper, "source", "PubMed") if matched_paper else "PubMed")
+
                 ev_list.append({
-                    "pmid": getattr(ev, "pmid", None),
-                    "pubmed_url": f"https://pubmed.ncbi.nlm.nih.gov/{getattr(ev, 'pmid', '')}/" if getattr(ev, "pmid", None) else None,
-                    "title": getattr(ev, "title", None) or (paper_map.get(getattr(ev, "pmid", "")).title if getattr(ev, "pmid", "") in paper_map else None),
-                    "journal": getattr(ev, "journal", None),
-                    "publication_date": getattr(ev, "publication_date", None),
-                    "doi": getattr(ev, "doi", None),
-                    "authors": getattr(ev, "authors", []),
+                    "pmid": ev_pmid,
+                    "pubmed_url": paper_url,
+                    "url": paper_url,
+                    "source": ev_source,
+                    "title": getattr(ev, "title", None) or (matched_paper.title if matched_paper else None),
+                    "journal": getattr(ev, "journal", None) or (matched_paper.journal if matched_paper else None),
+                    "publication_date": getattr(ev, "publication_date", None) or (matched_paper.publication_date if matched_paper else None),
+                    "doi": getattr(ev, "doi", None) or (matched_paper.doi if matched_paper else None),
+                    "authors": getattr(ev, "authors", []) or (matched_paper.authors if matched_paper else []),
                     "evidence_text": getattr(ev, "evidence_text", ""),
                     "evidence_type": getattr(ev, "evidence_type", "unknown"),
                     "relation": getattr(ev, "relation", "mentions"),
@@ -355,9 +366,13 @@ class BiomedicalPipeline:
 
         all_papers_output = []
         for p in batch_literature.papers:
+            paper_url = getattr(p, "url", None) or f"https://pubmed.ncbi.nlm.nih.gov/{p.pmid}/"
             all_papers_output.append({
                 "pmid": p.pmid,
-                "pubmed_url": f"https://pubmed.ncbi.nlm.nih.gov/{p.pmid}/",
+                "pubmed_url": paper_url,
+                "url": paper_url,
+                "source": getattr(p, "source", "PubMed"),
+                "pmcid": getattr(p, "pmcid", None),
                 "title": p.title,
                 "journal": p.journal,
                 "publication_date": p.publication_date,
@@ -365,6 +380,7 @@ class BiomedicalPipeline:
                 "authors": p.authors,
                 "target_symbols": p.target_symbols
             })
+
 
         return {
             "status": "success",
@@ -397,8 +413,10 @@ class BiomedicalPipeline:
                 "analyzed_targets": len(targets),
                 "total_unique_papers": batch_literature.total_papers,
                 "total_evidence_extracted": len(evidence_graph.evidence),
-                "prioritized_targets_count": len(prioritization_result.targets)
+                "prioritized_targets_count": len(prioritization_result.targets),
+                "literature_sources": getattr(batch_literature, "sources", ["PubMed", "Europe PMC", "Open Targets"])
             },
+
             "targets": targets_output,
             "papers": all_papers_output,
             "graph": {
