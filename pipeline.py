@@ -101,23 +101,37 @@ class BiomedicalPipeline:
         update_progress("Normalizing disease name and resolving ontologies...", 10)
         
         disease_concept = self.normalizer.normalize(disease_query)
-        canonical_name = disease_concept.canonical_name or disease_query
-        
+
+        # Never use partial or unmatched ontology candidates for downstream
+        # retrieval. Their IDs can refer to a different disease than the input.
+        if (
+            disease_concept.normalization.status != "resolved"
+            or not disease_concept.canonical_id
+        ):
+            suggestions = get_disease_suggestions(disease_query)
+            sugg_str = ", ".join(
+                f"'{s['name']}'" for s in suggestions[:4]
+            )
+            msg = (
+                f"Could not confidently identify '{disease_query}' as a "
+                "recognized disease. Please type the disease name again."
+            )
+            if sugg_str:
+                msg += f" Did you mean: {sugg_str}?"
+            err = ValueError(msg)
+            err.suggestions = suggestions
+            raise err
+
+        canonical_name = disease_concept.canonical_name
+
         # Build list of potential ontology IDs to try with Open Targets
-        candidate_ids = []
-        if disease_query.startswith("MONDO:") or disease_query.startswith("EFO:") or disease_query.startswith("MONDO_") or disease_query.startswith("EFO_"):
-            candidate_ids.append(disease_query)
-
-        if disease_concept.canonical_id:
-            candidate_ids.append(disease_concept.canonical_id)
-        if disease_concept.identifiers.mondo:
-            candidate_ids.append(disease_concept.identifiers.mondo)
-        if disease_concept.identifiers.efo:
-            candidate_ids.append(disease_concept.identifiers.efo)
-
-        for cand in disease_concept.candidates:
-            if cand.ontology in ("mondo", "efo") and cand.id and cand.id not in candidate_ids:
-                candidate_ids.append(cand.id)
+        candidate_ids = [disease_concept.canonical_id]
+        for identifier in (
+            disease_concept.identifiers.mondo,
+            disease_concept.identifiers.efo,
+        ):
+            if identifier and identifier not in candidate_ids:
+                candidate_ids.append(identifier)
         synonyms_list = list(set(disease_concept.synonyms.exact + disease_concept.synonyms.related))
 
         # =========================================================================

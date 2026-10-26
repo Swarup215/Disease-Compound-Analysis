@@ -381,8 +381,8 @@ function renderErrorAlert(query, message, suggestions) {
       <span>⚠️ Unrecognized or Misspelled Disease Condition</span>
     </div>
     <div>
-      Could not find target associations for <strong>"${escapeHtml(query)}"</strong>.
-      Please select a suggested correct spelling below or pick from the suggestion bar:
+      We could not confidently identify <strong>"${escapeHtml(query)}"</strong>.
+      Please type the disease name again or select a suggested correct spelling below:
     </div>
     <div class="suggestion-pills-row">
       ${pillsHtml.length ? pillsHtml : '<span style="font-size: 0.8rem; color: var(--text-dim);">No close spelling matches found. Try typing another term.</span>'}

@@ -58,7 +58,9 @@ python -m venv venv
 ```cmd
 venv\Scripts\activate.bat
 ```
-
+'''powershell
+.venv\Scripts\Activate.ps1
+'''
 > You should now see `(venv)` at the start of your command prompt, confirming the environment is active.
 
 ### 5. Install Dependencies
