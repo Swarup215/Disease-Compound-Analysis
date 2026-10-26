@@ -348,6 +348,9 @@ async function startPipelineExecution(payload) {
       resultsSection.classList.remove('hidden');
       runPipelineBtn.disabled = false;
       runPipelineBtn.style.opacity = '1';
+      // Enable the Fetch Natural Compounds button
+      const fetchBtn = document.getElementById('fetchCompoundsBtn');
+      if (fetchBtn) fetchBtn.disabled = false;
       // Scroll to results
       resultsSection.scrollIntoView({ behavior: 'smooth' });
     }, 450);
@@ -690,3 +693,289 @@ function downloadFile(content, fileName, contentType) {
   document.body.removeChild(a);
   URL.revokeObjectURL(a.href);
 }
+
+// =========================================================================
+// NATURAL COMPOUNDS TAB
+// =========================================================================
+
+let currentCompounds = null;  // full API response
+let allCompoundCards = [];    // keep references for filtering
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Enable fetch button once a pipeline result is available
+  // (the button is enabled by renderResults)
+
+  // Fetch button
+  document.getElementById('fetchCompoundsBtn').addEventListener('click', async () => {
+    if (!currentResults) return;
+    await fetchNaturalCompounds();
+  });
+
+  // Filter input
+  document.getElementById('compoundFilterInput').addEventListener('input', (e) => {
+    filterCompounds(e.target.value);
+  });
+
+  // Sort select
+  document.getElementById('compoundSortSelect').addEventListener('change', (e) => {
+    sortAndRenderCompounds(e.target.value);
+  });
+
+  // CSV download
+  document.getElementById('downloadCompoundsCsvBtn').addEventListener('click', () => {
+    if (!currentCompounds) return;
+    const csv = compoundsToCSV(currentCompounds.compounds);
+    const slug = slugify(currentCompounds.disease_name || 'disease');
+    downloadFile(csv, `${slug}_natural_compounds.csv`, 'text/csv');
+  });
+});
+
+async function fetchNaturalCompounds() {
+  if (!currentResults) return;
+
+  const idleState   = document.getElementById('compoundsIdleState');
+  const loadingState = document.getElementById('compoundsLoadingState');
+  const toolbar     = document.getElementById('compoundsToolbar');
+  const summaryStrip = document.getElementById('compoundsSummaryStrip');
+  const list        = document.getElementById('compoundsList');
+  const fetchBtn    = document.getElementById('fetchCompoundsBtn');
+  const loadingTxt  = document.getElementById('compoundsLoadingText');
+
+  // Build payload from current pipeline results
+  const disease  = currentResults.disease.canonical_name || currentResults.disease.input;
+  const synonyms = currentResults.disease.synonyms || [];
+  const targets  = (currentResults.targets || []).slice(0, 10).map(t => ({
+    symbol: t.target_symbol,
+    name:   t.target_name,
+  }));
+
+  // Show loading
+  idleState.style.display   = 'none';
+  summaryStrip.style.display = 'none';
+  toolbar.style.display      = 'none';
+  list.innerHTML             = '';
+  loadingState.style.display = 'flex';
+  fetchBtn.disabled          = true;
+
+  const loadingMessages = [
+    'Searching PubMed for natural compounds associated with this disease…',
+    'Querying ChEMBL bioactivity database for protein-compound interactions…',
+    'Extracting compound names from literature abstracts…',
+    'Merging and deduplicating results across both retrieval routes…',
+  ];
+  let msgIdx = 0;
+  const msgInterval = setInterval(() => {
+    msgIdx = (msgIdx + 1) % loadingMessages.length;
+    if (loadingTxt) loadingTxt.textContent = loadingMessages[msgIdx];
+  }, 3500);
+
+  try {
+    const resp = await fetch('/api/compounds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ disease, targets, synonyms }),
+    });
+
+    clearInterval(msgInterval);
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.message || 'Compound retrieval failed');
+    }
+
+    const data = await resp.json();
+    currentCompounds = data;
+
+    loadingState.style.display = 'none';
+    renderCompounds(data);
+    fetchBtn.disabled = false;
+
+    // Update metric card
+    const metricCard = document.getElementById('compoundsMetricCard');
+    if (metricCard) metricCard.style.display = '';
+    const totalEl = document.getElementById('resTotalCompounds');
+    if (totalEl) totalEl.textContent = data.total_compounds;
+    const dualEl = document.getElementById('resDualRouteCount');
+    if (dualEl) dualEl.textContent = `${data.dual_route_count} dual-route hits`;
+    const tabCount = document.getElementById('tabCompoundsCount');
+    if (tabCount) tabCount.textContent = data.total_compounds;
+
+  } catch (err) {
+    clearInterval(msgInterval);
+    loadingState.style.display = 'none';
+    idleState.style.display    = 'flex';
+    fetchBtn.disabled          = false;
+    alert(`Compound retrieval error: ${err.message}`);
+  }
+}
+
+function renderCompounds(data) {
+  const summaryStrip = document.getElementById('compoundsSummaryStrip');
+  const toolbar      = document.getElementById('compoundsToolbar');
+  const list         = document.getElementById('compoundsList');
+
+  // Summary stats
+  document.getElementById('cpStatTotalNum').textContent = data.total_compounds;
+  document.getElementById('cpStatDualNum').textContent  = data.dual_route_count;
+  document.getElementById('cpStatRouteA').textContent   = data.route_a_count;
+  document.getElementById('cpStatRouteB').textContent   = data.route_b_count;
+  summaryStrip.style.display = 'flex';
+  toolbar.style.display      = 'flex';
+
+  // Build and store all cards
+  allCompoundCards = (data.compounds || []).map(c => buildCompoundCard(c));
+  list.innerHTML = '';
+  allCompoundCards.forEach(card => list.appendChild(card));
+}
+
+function buildCompoundCard(c) {
+  const card = document.createElement('div');
+  card.className = 'compound-card' + (c.is_dual_route ? ' dual-route' : '');
+  card.dataset.name    = c.name;
+  card.dataset.targets = (c.targets_targeted || []).join(' ').toLowerCase();
+  card.dataset.routes  = (c.retrieval_routes || []).join(' ');
+
+  // Route badges
+  const routeMap = {
+    disease_natural_literature: ['route-a', '🔵 Route A (Disease→Literature)'],
+    protein_chembl_bioactivity: ['route-b-chembl', '🟡 Route B (Protein→ChEMBL)'],
+    protein_literature:         ['route-b-lit',    '🟢 Route B (Protein→Literature)'],
+  };
+  const routeBadgesHtml = (c.retrieval_routes || []).map(r => {
+    const [cls, label] = routeMap[r] || ['', r];
+    return `<span class="route-badge ${cls}">${escapeHtml(label)}</span>`;
+  }).join('');
+
+  // Target tags
+  const targetTagsHtml = (c.targets_targeted || []).map(t =>
+    `<span class="target-tag">${escapeHtml(t)}</span>`
+  ).join('');
+
+  // Detail chips
+  const citationsHtml = c.citation_count
+    ? `<span class="compound-detail-chip">📚 <strong>${c.citation_count}</strong> citations</span>` : '';
+  const naturalHtml = `<span class="compound-detail-chip">🌿 <strong>${c.natural_origin ? 'Natural' : 'Synthetic'}</strong>${c.natural_origin_source ? ' · ' + escapeHtml(c.natural_origin_source) : ''}</span>`;
+  const potencyHtml = c.best_bioactivity_nM != null
+    ? `<span class="compound-detail-chip">⚗️ Best: <strong>${formatPotency(c.best_bioactivity_nM)}</strong></span>` : '';
+  const chemblHtml = c.chembl_id && !c.chembl_id.startsWith('LIT:')
+    ? `<a href="https://www.ebi.ac.uk/chembl/compound_report_card/${c.chembl_id}/" target="_blank" rel="noopener" class="compound-pmid-link">ChEMBL: ${escapeHtml(c.chembl_id)} ↗</a>` : '';
+
+  // Snippets (top 2)
+  const snippets = c.provenance && c.provenance.snippets ? c.provenance.snippets.slice(0, 2) : [];
+  const snippetsHtml = snippets.length
+    ? `<div class="compound-snippets">${snippets.map(s => `<div class="compound-snippet">"${escapeHtml(s)}"</div>`).join('')}</div>` : '';
+
+  // PMIDs
+  const pmids = c.provenance && c.provenance.pmids ? c.provenance.pmids.slice(0, 5) : [];
+  const pmidsHtml = pmids.length
+    ? `<div class="compound-pmids-row">${pmids.map(p => `<a class="compound-pmid-link" href="https://pubmed.ncbi.nlm.nih.gov/${escapeHtml(p)}/" target="_blank" rel="noopener">PMID: ${escapeHtml(p)} ↗</a>`).join('')}</div>` : '';
+
+  // Potency bar (relative, capped at 10 000 nM)
+  let potencyBarHtml = '';
+  if (c.best_bioactivity_nM != null) {
+    const pct = Math.min(100, Math.max(2, 100 - Math.log10(c.best_bioactivity_nM + 1) * 20));
+    potencyBarHtml = `
+      <div class="potency-bar-wrapper">
+        <span class="potency-bar-label">Potency score (lower nM = better)</span>
+        <div class="potency-bar-track"><div class="potency-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+      </div>`;
+  }
+
+  card.innerHTML = `
+    <div class="compound-card-header">
+      <span class="compound-name">${escapeHtml(c.name)}</span>
+      ${c.is_dual_route ? '<span class="dual-badge">⭐ Dual-Route</span>' : ''}
+    </div>
+
+    <div class="compound-routes-row">${routeBadgesHtml}</div>
+
+    <div class="compound-details-row">
+      ${naturalHtml}${citationsHtml}${potencyHtml}
+    </div>
+
+    ${targetTagsHtml ? `
+    <div class="compound-targets-section">
+      <span class="compound-targets-label">Active against targets</span>
+      <div class="compound-target-tags">${targetTagsHtml}</div>
+    </div>` : ''}
+
+    ${potencyBarHtml}
+
+    ${snippetsHtml}
+
+    ${(pmids.length || chemblHtml) ? `
+    <div class="compound-pmids-row">
+      ${chemblHtml}${pmidsHtml ? pmidsHtml : ''}
+    </div>` : ''}
+  `;
+
+  return card;
+}
+
+function formatPotency(nM) {
+  if (nM == null) return '—';
+  if (nM < 1) return `${(nM * 1000).toFixed(0)} pM`;
+  if (nM < 1000) return `${nM.toFixed(1)} nM`;
+  return `${(nM / 1000).toFixed(2)} µM`;
+}
+
+function filterCompounds(query) {
+  const q = (query || '').toLowerCase();
+  const list = document.getElementById('compoundsList');
+  list.innerHTML = '';
+  const filtered = allCompoundCards.filter(card => {
+    const text = (
+      (card.dataset.name || '') + ' ' +
+      (card.dataset.targets || '') + ' ' +
+      (card.dataset.routes || '') + ' ' +
+      (card.textContent || '')
+    ).toLowerCase();
+    return text.includes(q);
+  });
+  filtered.forEach(card => list.appendChild(card));
+}
+
+function sortAndRenderCompounds(mode) {
+  if (!currentCompounds) return;
+  const compounds = [...(currentCompounds.compounds || [])];
+  if (mode === 'name') {
+    compounds.sort((a, b) => a.name.localeCompare(b.name));
+  } else if (mode === 'citations') {
+    compounds.sort((a, b) => (b.citation_count || 0) - (a.citation_count || 0));
+  } else if (mode === 'potency') {
+    compounds.sort((a, b) => {
+      const av = a.best_bioactivity_nM ?? Infinity;
+      const bv = b.best_bioactivity_nM ?? Infinity;
+      return av - bv;
+    });
+  } else {
+    // default: dual first
+    compounds.sort((a, b) => {
+      if (a.is_dual_route && !b.is_dual_route) return -1;
+      if (!a.is_dual_route && b.is_dual_route) return 1;
+      return (b.citation_count || 0) - (a.citation_count || 0);
+    });
+  }
+  allCompoundCards = compounds.map(c => buildCompoundCard(c));
+  const list = document.getElementById('compoundsList');
+  list.innerHTML = '';
+  allCompoundCards.forEach(card => list.appendChild(card));
+}
+
+function compoundsToCSV(compounds) {
+  const headers = ['Name', 'ChEMBL_ID', 'Natural_Origin', 'Source', 'Retrieval_Routes', 'Targets', 'Citations', 'Best_Potency_nM', 'Dual_Route', 'PMIDs'];
+  const rows = (compounds || []).map(c => [
+    `"${(c.name || '').replace(/"/g, '""')}"`,
+    `"${c.chembl_id || ''}"`,
+    c.natural_origin ? 'Yes' : 'No',
+    `"${(c.evidence_sources || []).join(';')}"`,
+    `"${(c.retrieval_routes || []).join(';')}"`,
+    `"${(c.targets_targeted || []).join(';')}"`,
+    c.citation_count || 0,
+    c.best_bioactivity_nM != null ? c.best_bioactivity_nM.toFixed(2) : '',
+    c.is_dual_route ? 'Yes' : 'No',
+    `"${((c.provenance && c.provenance.pmids) || []).join(';')}"`,
+  ]);
+  return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+}
+
