@@ -6,6 +6,7 @@ import urllib.parse
 from pipeline import BiomedicalPipeline
 
 from disease_normalizer.suggester import get_disease_suggestions
+from compound_retriever import NaturalCompoundRetriever
 
 # Base directory for static files
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -13,6 +14,7 @@ FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
 # Singleton pipeline instance for reuse
 _pipeline = None
+_compound_retriever = None
 
 
 def get_pipeline():
@@ -20,6 +22,17 @@ def get_pipeline():
     if _pipeline is None:
         _pipeline = BiomedicalPipeline()
     return _pipeline
+
+
+def get_compound_retriever():
+    global _compound_retriever
+    if _compound_retriever is None:
+        _compound_retriever = NaturalCompoundRetriever(
+            max_route_a_papers=30,
+            max_route_b_activities=200,
+            max_route_b_papers=10,
+        )
+    return _compound_retriever
 
 
 class BiomedicalHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -148,8 +161,97 @@ class BiomedicalHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"status": "error", "message": str(exc)}).encode("utf-8"))
             return
 
+        if path == "/api/compounds":
+            content_length = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_length)
+            try:
+                payload = json.loads(post_data.decode("utf-8"))
+                disease = payload.get("disease", "").strip()
+                if not disease:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self._send_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "error", "message": "Disease name cannot be empty"}).encode("utf-8"))
+                    return
+
+                targets = payload.get("targets", [])
+                synonyms = payload.get("synonyms", [])
+
+                retriever = get_compound_retriever()
+                result = retriever.retrieve(
+                    disease_name=disease,
+                    targets=targets,
+                    disease_synonyms=synonyms,
+                )
+
+                # Serialize to JSON-friendly dict
+                def compound_to_dict(c):
+                    return {
+                        "compound_id": c.compound_id,
+                        "name": c.name,
+                        "synonyms": c.synonyms,
+                        "smiles": c.smiles,
+                        "inchikey": c.inchikey,
+                        "pubchem_cid": c.pubchem_cid,
+                        "chembl_id": c.chembl_id,
+                        "natural_origin": c.natural_origin,
+                        "natural_origin_source": c.natural_origin_source,
+                        "natural_product_class": c.natural_product_class,
+                        "retrieval_routes": c.retrieval_routes,
+                        "targets_targeted": c.targets_targeted,
+                        "evidence_sources": c.evidence_sources,
+                        "citation_count": c.citation_count,
+                        "best_bioactivity_nM": c.best_bioactivity_nM,
+                        "is_dual_route": (
+                            "disease_natural_literature" in c.retrieval_routes
+                            and ("protein_chembl_bioactivity" in c.retrieval_routes or "protein_literature" in c.retrieval_routes)
+                        ),
+                        "target_relations": [
+                            {
+                                "target_symbol": tr.target_symbol,
+                                "target_name": tr.target_name,
+                                "relation_type": tr.relation_type,
+                                "best_potency_nM": tr.best_potency_nM,
+                                "pmids": tr.pmids,
+                                "evidence_snippets": tr.evidence_snippets[:3],
+                                "source": tr.source,
+                            }
+                            for tr in c.target_relations
+                        ],
+                        "provenance": {
+                            "pmids": c.provenance.get("pmids", [])[:10],
+                            "snippets": c.provenance.get("snippets", [])[:5],
+                        },
+                    }
+
+                output = {
+                    "status": "success",
+                    "disease_name": result.disease_name,
+                    "targets_queried": result.targets_queried,
+                    "total_compounds": result.total_compounds,
+                    "route_a_count": result.route_a_count,
+                    "route_b_count": result.route_b_count,
+                    "dual_route_count": result.dual_route_count,
+                    "compounds": [compound_to_dict(c) for c in result.compounds],
+                }
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps(output).encode("utf-8"))
+            except Exception as exc:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(exc)}).encode("utf-8"))
+            return
+
         self.send_response(404)
         self.end_headers()
+
 
 
 def start_server(port: int = 8000):

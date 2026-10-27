@@ -229,6 +229,14 @@
               <span class="metric-sub" id="resElapsed">0.0s elapsed</span>
             </div>
           </div>
+          <div class="metric-card" id="compoundsMetricCard" style="display:none;">
+            <div class="metric-icon">🌿</div>
+            <div class="metric-content">
+              <span class="metric-label">Natural Compounds Retrieved</span>
+              <h3 class="metric-value" id="resTotalCompounds">0</h3>
+              <span class="metric-sub" id="resDualRouteCount">0 dual-route hits</span>
+            </div>
+          </div>
         </div>
 
         <!-- Navigation Tabs -->
@@ -240,6 +248,10 @@
           <button class="tab-btn" data-tab="papersTab">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
             Literature Library (<span id="tabPapersCount">0</span>)
+          </button>
+          <button class="tab-btn" data-tab="compoundsTab" id="compoundsTabBtn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8 2 5 5.5 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.5-3-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            Natural Compounds (<span id="tabCompoundsCount">&mdash;</span>)
           </button>
           <button class="tab-btn" data-tab="graphTab">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -273,6 +285,124 @@
           <div class="papers-grid" id="papersList">
             <!-- Papers rendered dynamically by app.js -->
           </div>
+        </div>
+
+        <!-- Tab 3: Natural Compounds -->
+        <div class="tab-pane" id="compoundsTab">
+          <!-- Summary strip -->
+          <div class="compounds-summary-strip" id="compoundsSummaryStrip" style="display:none;">
+            <div class="compound-stat-pill" id="cpStatTotal">
+              <span class="csp-num" id="cpStatTotalNum">0</span>
+              <span class="csp-lbl">Total</span>
+            </div>
+            <div class="compound-stat-pill dual" id="cpStatDual">
+              <span class="csp-num" id="cpStatDualNum">0</span>
+              <span class="csp-lbl">Dual-Route ⭐</span>
+            </div>
+            <div class="compound-stat-pill">
+              <span class="csp-num" id="cpStatRouteA">0</span>
+              <span class="csp-lbl">Route A (Disease→Lit)</span>
+            </div>
+            <div class="compound-stat-pill">
+              <span class="csp-num" id="cpStatRouteB">0</span>
+              <span class="csp-lbl">Route B (Protein→ChEMBL)</span>
+            </div>
+          </div>
+
+          <!-- Loading / idle states -->
+          <div id="compoundsIdleState" class="compounds-idle-state">
+            <div class="idle-icon">🌿</div>
+            <h3>Natural Compound Discovery</h3>
+            <p>Run the pipeline analysis first, then click <strong>"Fetch Natural Compounds"</strong> to retrieve bioactive natural compounds for this disease and its top targets.</p>
+            <button type="button" class="btn btn-primary btn-glow" id="fetchCompoundsBtn" disabled>
+              <span class="btn-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8 2 5 5.5 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.5-3-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+              </span>
+              Fetch Natural Compounds
+            </button>
+          </div>
+
+          <div id="compoundsLoadingState" class="compounds-loading-state" style="display:none;">
+            <div class="spinner"></div>
+            <p id="compoundsLoadingText">Searching PubMed &amp; ChEMBL for natural compounds...</p>
+          </div>
+
+          <!-- Filter + sort toolbar -->
+          <div id="compoundsToolbar" class="results-toolbar" style="display:none;">
+            <div class="search-box">
+              <input type="text" id="compoundFilterInput" placeholder="Filter compounds by name, target, or route..." class="filter-input">
+            </div>
+            <div class="filter-actions">
+              <select id="compoundSortSelect" class="filter-select">
+                <option value="default">Sort: Dual-route first</option>
+                <option value="name">Sort: Name A-Z</option>
+                <option value="citations">Sort: Citations</option>
+                <option value="potency">Sort: Potency (best nM)</option>
+              </select>
+              <button type="button" class="btn btn-secondary btn-sm" id="downloadCompoundsCsvBtn">Download CSV</button>
+            </div>
+          </div>
+
+          <!-- Compound cards grid -->
+          <div class="compounds-grid" id="compoundsList">
+            <!-- Populated by app.js -->
+          </div>
+        </div>
+
+        <!-- Tab 3: Natural Compounds -->
+        <div class="tab-pane" id="compoundsTab">
+          <div class="compounds-summary-strip" id="compoundsSummaryStrip" style="display:none;">
+            <div class="compound-stat-pill">
+              <span class="csp-num" id="cpStatTotalNum">0</span>
+              <span class="csp-lbl">Total</span>
+            </div>
+            <div class="compound-stat-pill dual">
+              <span class="csp-num" id="cpStatDualNum">0</span>
+              <span class="csp-lbl">Dual-Route &#11088;</span>
+            </div>
+            <div class="compound-stat-pill">
+              <span class="csp-num" id="cpStatRouteA">0</span>
+              <span class="csp-lbl">Route A (Disease&#8594;Lit)</span>
+            </div>
+            <div class="compound-stat-pill">
+              <span class="csp-num" id="cpStatRouteB">0</span>
+              <span class="csp-lbl">Route B (Protein&#8594;ChEMBL)</span>
+            </div>
+          </div>
+
+          <div id="compoundsIdleState" class="compounds-idle-state">
+            <div class="idle-icon">&#127807;</div>
+            <h3>Natural Compound Discovery</h3>
+            <p>Run the pipeline analysis first, then click <strong>"Fetch Natural Compounds"</strong> to retrieve bioactive natural compounds for this disease and its top targets.</p>
+            <button type="button" class="btn btn-primary btn-glow" id="fetchCompoundsBtn" disabled>
+              <span class="btn-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8 2 5 5.5 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.5-3-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+              </span>
+              Fetch Natural Compounds
+            </button>
+          </div>
+
+          <div id="compoundsLoadingState" class="compounds-loading-state" style="display:none;">
+            <div class="spinner"></div>
+            <p id="compoundsLoadingText">Searching PubMed &amp; ChEMBL for natural compounds&hellip;</p>
+          </div>
+
+          <div id="compoundsToolbar" class="results-toolbar" style="display:none;">
+            <div class="search-box">
+              <input type="text" id="compoundFilterInput" placeholder="Filter compounds by name, target, or route..." class="filter-input">
+            </div>
+            <div class="filter-actions">
+              <select id="compoundSortSelect" class="filter-select">
+                <option value="default">Sort: Dual-route first</option>
+                <option value="name">Sort: Name A-Z</option>
+                <option value="citations">Sort: Citations</option>
+                <option value="potency">Sort: Potency (best nM)</option>
+              </select>
+              <button type="button" class="btn btn-secondary btn-sm" id="downloadCompoundsCsvBtn">Download CSV</button>
+            </div>
+          </div>
+
+          <div class="compounds-grid" id="compoundsList"></div>
         </div>
 
         <!-- Tab 3: Evidence Graph -->
