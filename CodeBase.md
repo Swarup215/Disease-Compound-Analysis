@@ -2,17 +2,19 @@
 
 ## 1. Executive Summary
 
-**Biomedical AI** is an end-to-end, modular biomedical computational pipeline designed for disease-target discovery, literature-augmented validation, and therapeutic target prioritization. 
+**Biomedical AI** is an end-to-end, modular biomedical computational pipeline designed for disease-target discovery, literature-augmented validation, therapeutic target prioritization, and natural compound candidate discovery and verification. 
 
-The system bridges high-confidence structured knowledge bases with unstructured scientific literature. Given a disease query, it:
+The system bridges high-confidence structured knowledge bases with unstructured scientific literature and chemical registries:
 1. Normalizes the disease name across global biomedical ontologies (MONDO, EFO, DOID, MeSH) using the EMBL-EBI Ontology Lookup Service (OLS4).
 2. Retrieves disease-target associations from the Open Targets Platform GraphQL API.
-3. Automatically constructs PubMed search queries and retrieves scientific literature for candidate targets.
+3. Automatically constructs PubMed search queries and retrieves scientific literature for candidate targets across PubMed, Europe PMC, and Open Targets.
 4. Processes, chunks, embeds, indexes, and reranks literature passages using a Retrieval-Augmented Generation (RAG) architecture powered by FAISS, Sentence Transformers, and Cross-Encoders.
 5. Extracts structured biological assertions (relations, evidence types, strengths, directions, confidence) from retrieved passages using rule-based Natural Language Processing.
 6. Constructs a multi-modal Knowledge/Evidence Graph relating diseases, drug targets, published papers, and evidence claims.
 7. Fuses structured Open Targets scores with literature evidence into a combined quantitative score.
 8. Prioritizes and ranks candidate targets for downstream experimental or clinical investigation.
+9. Discovers bioactive and natural compounds via dual routes: Route A (disease literature) and Route B (protein target ChEMBL bioactivities).
+10. Verifies chemical identity (PubChem CID, canonical SMILES, standard InChIKey), distinguishes natural vs. synthetic origin, and retains full provenance audit trails.
 
 ---
 
@@ -69,19 +71,32 @@ flowchart TD
         EGB --> EG["EvidenceGraph (Diseases, Targets, Papers, Evidence Nodes & Edges)"]
     end
 
-    subgraph S7["7. Evidence Fusion"]
+    subgraph S7["7. Evidence Fusion & Prioritization"]
         EG --> EF["EvidenceFusion"]
         Targets --> EF
         EF --> LitScore["Calculate Literature Score (Strong/Moderate/Weak Weights)"]
         LitScore --> FuseFormula["Weighted Linear Fusion (Structured + Literature)"]
         FuseFormula --> TFR["TargetFusionResult (Fused Score)"]
+        TFR --> TP["TargetPrioritizer"]
+        TP --> PrioritizedTargets["Prioritized Targets (Ranked 1..N)"]
     end
 
-    subgraph S8["8. Target Prioritization"]
-        TFR --> TP["TargetPrioritizer"]
-        TP --> Sort["Sort descending by Fused Score"]
-        Sort --> TopN["Filter Top-N & Assign 1-based Rank"]
-        TopN --> FinalResult["TargetPrioritizationResult"]
+    subgraph S8["8. Natural Compound Candidate Retrieval (Step 6)"]
+        DC -->|Disease Name| RouteA["Route A: Disease -> Natural Literature Mining"]
+        PrioritizedTargets -->|Protein Symbols| RouteB["Route B: Protein -> ChEMBL Bioactivity & PubMed"]
+        RouteA --> MergeCompounds["Merge & Deduplication (InChIKey / ChEMBL ID)"]
+        RouteB --> MergeCompounds
+        MergeCompounds --> RawCandidates["Candidate Compounds (Dual-Route Flagged)"]
+    end
+
+    subgraph S9["9. Compound Identity & Origin Verification (Step 7)"]
+        RawCandidates --> CV["CompoundVerifier"]
+        CV --> PubChem["PubChem PUG REST Client (CID, SMILES, InChIKey, Synonyms)"]
+        CV --> Classifier["NaturalOriginClassifier (Curated Registry & Rules)"]
+        Classifier --> OriginStatus["Natural / Natural Derivative / Synthetic / Unverified"]
+        PubChem --> VerifiedID["Standardized Chemical Descriptors"]
+        OriginStatus --> VC["Verified Compounds + Retained Provenance"]
+        VerifiedID --> VC
     end
 ```
 
@@ -91,259 +106,168 @@ flowchart TD
 
 ### 3.1. `disease_normalizer/`
 Normalizes uncurated disease terms into controlled ontology concepts.
-
-- **`models.py`**:
-  - `DiseaseInput`: Holds the raw input string.
-  - `DiseaseIdentifiers`: Contains cross-ontology references (`mondo`, `doid`, `efo`, `mesh`).
-  - `DiseaseSynonyms`: Lists exact, narrow, broad, and related synonyms.
-  - `DiseaseCandidate`: Encapsulates a candidate ontology match with score, ontology name, and match type.
-  - `NormalizationMetadata`: Records normalization status (`resolved`, `ambiguous`, `no_match`), match type, and source (`OLS`).
-  - `DiseaseConcept`: Unified entity representation aggregating input, canonical ID/name, identifiers, synonyms, normalization metadata, and top 10 candidates.
-- **`preprocess.py`**:
-  - `preprocess_disease_name(name)`: Strips whitespace, collapses repeated spaces, and lowers case.
-  - `normalize_for_matching(text)`: Normalizes hyphens and underscores to spaces for robust fuzzy comparison.
-- **`ols.py`**:
-  - `OLSClient`: Connects to `https://www.ebi.ac.uk/ols4/api/select`. Queries specific ontologies (`mondo`, `doid`, `efo`, `mesh`) requesting fields such as `iri`, `label`, `short_form`, `obo_id`, `description`, and `synonym`.
-- **`resolver.py`**:
-  - `score_candidate(query, candidate)`: Matches cleaned query against candidate label and synonyms:
-    - `exact_label`: Score `1.0`
-    - `exact_synonym`: Score `0.95`
-    - `partial_label`: Score `0.85`
-    - `partial_synonym`: Score `0.80`
-    - `no_match`: Score `0.0`
-- **`normalizer.py`**:
-  - `DiseaseNormalizer`: Orchestrates multi-ontology searches across `SUPPORTED_ONTOLOGIES = ["mondo", "doid", "efo", "mesh"]`. Collects candidates, ranks them by score, decides status (`resolved` if exact, `ambiguous` if partial, `no_match` if empty), selects canonical representation, and maps cross-ontology IDs.
-- **`disease_ontology.py` & `mondo.py`**:
-  - Currently empty files, intended as placeholders for direct ontology graph/file parsers.
+- **`models.py`**: `DiseaseInput`, `DiseaseIdentifiers`, `DiseaseSynonyms`, `DiseaseCandidate`, `NormalizationMetadata`, `DiseaseConcept`.
+- **`preprocess.py`**: String normalization, whitespace collapsing, hyphen/underscore normalization.
+- **`ols.py`**: Connects to EMBL-EBI OLS4 select API (`mondo`, `doid`, `efo`, `mesh`).
+- **`resolver.py`**: Multi-tier scoring: exact label (1.0), exact synonym (0.95), partial label (0.85), partial synonym (0.80).
+- **`normalizer.py`**: Orchestrates multi-ontology resolution and cross-mapping.
 
 ---
 
 ### 3.2. `structured_retriever/`
-Retrieves known disease-target associations from Open Targets.
-
-- **`model.py`**:
-  - `TargetEvidence`: Holds dictionary mapping evidence data types (e.g. `literature`, `genetic_association`, `animal_model`, `clinical`) to their individual sub-scores.
-  - `TargetCandidate`: Ensembl ID, approved symbol, approved name, overall association score (0.0 to 1.0), evidence breakdown, and source label.
-  - `StructuredRetrievalResult`: Metadata including total targets count, retrieved targets count, filtered count, and the list of `TargetCandidate` items.
-- **`open_targets.py`**:
-  - `OpenTargetsClient`: Connects to the Open Targets GraphQL endpoint (`https://api.platform.opentargets.org/api/v4/graphql`). Executes the `associatedTargets` query parameterized by `diseaseId` (converting `:` to `_`), `pageIndex`, and `pageSize`.
-- **`retriever.py`**:
-  - `StructuredRetriever`:
-    - Handles pagination loops up to `max_targets` (default: 500) or total available count.
-    - Parses datatype breakdown scores via `_parse_evidence()`.
-    - Deduplicates targets by Ensembl ID, preserving the higher association score (`_deduplicate_targets()`).
-    - Filters by `min_score` and limits by `top_n`.
+Retrieves known disease-target associations from Open Targets Platform.
+- **`model.py`**: `TargetEvidence`, `TargetCandidate`, `StructuredRetrievalResult`.
+- **`open_targets.py`**: Open Targets GraphQL client querying `associatedTargets`.
+- **`retriever.py`**: Pagination, datatype score parsing, Ensembl deduplication, and score threshold filtering.
 
 ---
 
 ### 3.3. `literature_retriever/`
-Harvests scientific literature across NCBI PubMed, EMBL-EBI Europe PMC, and Open Targets Platform.
-
-- **`models.py`**:
-  - `Paper`: PMID, title, abstract, journal, publication date, DOI, authors list, list of associated target symbols, source (`PubMed`, `Europe PMC`, `Open Targets`), URL, and PMCID.
-  - `LiteratureRetrievalResult`: Single query result with total found count, retrieved count, sources list, and list of `Paper` objects.
-  - `TargetLiteratureResult`: Literature result specific to a target symbol and disease name with sources list.
-  - `BatchLiteratureResult`: Aggregated result across multiple targets, deduplicating papers across targets, tracking source origins, and appending target symbols.
-- **`query_builder.py`**:
-  - `LiteratureQueryBuilder`: Generates boolean search strings in the format `"{disease_name}" AND {target_symbol}`. Validates non-empty input.
-- **`pubmed.py`**:
-  - `PubMedClient`: Interacts with NCBI Entrez E-Utilities:
-    - `search(query, retmax)`: Calls `esearch.fcgi` to obtain matching PMIDs and count.
-    - `fetch(pmids)`: Calls `efetch.fcgi` to download XML abstracts.
-    - `parse_articles(xml_text)`: Uses `xml.etree.ElementTree` to parse `PubmedArticle` nodes, extracting title, abstract sections, journal title, pub date, DOI, and author names.
-- **`europe_pmc.py`**:
-  - `EuropePMCClient`: Interacts with EMBL-EBI Europe PMC REST API (`https://www.ebi.ac.uk/europepmc/webservices/rest/search`):
-    - `search(query, page_size)`: Searches Europe PMC for PubMed, PMC full texts, and preprints (bioRxiv/medRxiv).
-    - `parse_articles(raw_items)`: Standardizes records, extracts authors, journals, DOIs, cleans HTML tags, and formats direct web URLs.
-- **`open_targets_literature.py`**:
-  - `OpenTargetsLiteratureClient`: Queries Open Targets Platform GraphQL API for text-mined and curated disease-target publication PMIDs (`datasourceIds: ["europepmc"]`).
-- **`retriever.py`**:
-  - `LiteratureRetriever`:
-    - `search(query, top_n, include_europe_pmc)`: Searches PubMed and Europe PMC concurrently, merges and deduplicates papers by PMID and DOI, and aggregates sources.
-    - `search_target(disease_name, target_symbol, top_n, disease_id, target_ensembl_id)`: Formulates query, searches primary literature, and complements with Open Targets verified literature evidence.
-    - `search_targets(disease_name, target_symbols, papers_per_target, disease_id, target_id_map)`: Batch execution across all candidate targets with multi-source deduplication and cross-target linking.
-
+Harvests scientific literature across NCBI PubMed, EMBL-EBI Europe PMC, and Open Targets.
+- **`models.py`**: `Paper`, `LiteratureRetrievalResult`, `BatchLiteratureResult`.
+- **`query_builder.py`**: Generates `"{disease_name}" AND {target_symbol}` queries.
+- **`pubmed.py`**: NCBI Entrez E-Utilities (`esearch` + `efetch` + XML parsing).
+- **`europe_pmc.py`**: Europe PMC REST client for peer-reviewed papers and preprints.
+- **`open_targets_literature.py`**: Extracts text-mined PMIDs from Open Targets GraphQL API.
+- **`retriever.py`**: Batch multi-source retrieval with PMID/DOI deduplication.
 
 ---
 
 ### 3.4. `biomedical_rag/`
-A Retrieval-Augmented Generation subsystem for semantic indexing, vector search, and reranking of scientific publications.
-
-- **`models.py`**:
-  - `RAGDocument`: Standardized document representation with ID (e.g. `PMID:123456`), combined text (title + abstract), disease, target symbols, and metadata.
-  - `RAGChunk`: Chunked text segment with embedding vector, chunk ID, PMID, and metadata.
-  - `RerankedResult`: Paired `RAGChunk` and cross-encoder relevance score.
-- **`document_processor.py`**:
-  - `DocumentProcessor`: Formats `Paper` instances into `RAGDocument` by concatenating title and abstract.
-- **`chunker.py`**:
-  - `TextChunker`: Implements character-level sliding-window chunking (default `chunk_size=500`, `overlap=100`), generating unique IDs (`PMID:xxxx:chunk:n`).
-- **`embedder.py`**:
-  - `TextEmbedder`: Wraps `SentenceTransformer("all-MiniLM-L6-v2")` to generate 384-dimensional dense vectors.
-- **`vector_store.py`**:
-  - `VectorStore`: In-memory `faiss.IndexFlatL2` index storing embeddings and maintaining a parallel list of `RAGChunk` objects. Supports Euclidean distance search for `top_k`.
-- **`retriever.py`**:
-  - `SemanticRetriever`: Coordinates query embedding through `TextEmbedder` and nearest-neighbor search through `VectorStore`.
-- **`reranker.py`**:
-  - `Reranker`: Uses `CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")` to score `(query, chunk_text)` pairs, sorting descending to produce high-precision ranked outputs.
-- **`rag_pipeline.py`**:
-  - `RAGPipeline`: Complete end-to-end interface. Adds papers, handles document processing, chunking, embedding, indexing, retrieval (`retrieval_k`), and reranking (`final_k`).
+Semantic retrieval and neural reranking of scientific publications.
+- **`models.py`**: `RAGDocument`, `RAGChunk`, `RerankedResult`.
+- **`document_processor.py`**: Maps `Paper` to `RAGDocument`.
+- **`chunker.py`**: Character-level sliding window chunker.
+- **`embedder.py`**: `SentenceTransformer("all-MiniLM-L6-v2")` 384-dimensional dense vectors.
+- **`vector_store.py`**: In-memory FAISS `IndexFlatL2` Euclidean distance index.
+- **`retriever.py`**: Semantic retriever querying target-disease relationships.
+- **`reranker.py`**: `CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")`.
 
 ---
 
 ### 3.5. `evidence_extractor/`
 Extracts structured assertions from text chunks or abstracts.
-
-- **`models.py`**:
-  - `EvidenceItem`: Granular biological assertion recording `pmid`, `disease_name`, `target_symbol`, `evidence_text`, `evidence_type`, `relation`, `evidence_strength`, `direction`, `confidence`, and `source`.
-  - `EvidenceExtractionResult`: Target-level collection of `EvidenceItem` objects.
-- **`rules.py`**:
-  - Rule-based pattern matching:
-    - `contains_disease(text, disease_name)`: Checks disease aliases (including "type 2 diabetes", "t2dm", "diabetes mellitus").
-    - `contains_target(text, target_symbol)`: Word-boundary regex matching (`\bSYMBOL\b`).
-    - `classify_evidence_type(text)`: Categorizes text into `genetic_association`, `gene_expression`, `protein_interaction`, `drug_target`, `animal_model`, `experimental`, or `unknown`.
-    - `classify_relation(text, target_symbol, disease)`: Categorizes relation into `no_association`, `drug_target_of`, `experimental_association`, `associated_with`, or `mentions`.
-    - `classify_evidence_strength(evidence_type, relation)`: Maps type/relation to `strong`, `moderate`, or `weak`.
-    - `classify_direction(text, relation)`: Identifies `positive_association`, `negative_or_no_association`, or `unknown`.
-- **`extractor.py`**:
-  - `EvidenceExtractor`:
-    - Splits text into sentences using lookbehind punctuation regex.
-    - Identifies target sentences and constructs a sliding context window (`context_sentences` before/after).
-    - Ensures disease co-occurrence within the context window.
-    - Computes confidence score (0.0 to 1.0) based on target presence (+0.25), disease presence (+0.25), non-unknown evidence type (+0.20), non-generic relation (+0.20), and explicit direction (+0.10).
-    - Filters by `min_confidence` (default: 0.5) and deduplicates evidence items.
+- **`models.py`**: `EvidenceItem`, `EvidenceExtractionResult`.
+- **`rules.py`**: Regex target detection (`\bSYMBOL\b`), evidence type classification (`protein_interaction`, `genetic_association`, `drug_target`, `gene_expression`, `clinical`, `animal_model`, `experimental`), relation classification (`drug_target_of`, `associated_with`, `no_association`), strength, and direction.
+- **`extractor.py`**: Context sentence sliding window and confidence calculator.
 
 ---
 
 ### 3.6. `evidence_graph/`
-Builds an in-memory heterogeneous graph linking all entities.
-
-- **`models.py`**:
-  - `DiseaseNode`: Disease ID and canonical name.
-  - `TargetNode`: Target Ensembl ID, approved symbol, and optional name.
-  - `PaperNode`: PMID and title.
-  - `EvidenceNode`: Unique evidence ID, PMID, disease, target, passage snippet, evidence type, relation, strength, direction, and confidence.
-  - `EvidenceEdge`: Directed edge (`source_id`, `relation`, `target_id`).
-  - `EvidenceGraph`: Graph container holding lists of diseases, targets, papers, evidence nodes, and edges.
-- **`graph.py`**:
-  - `EvidenceGraphBuilder`:
-    - Deduplicates additions of diseases, targets, and papers.
-    - `add_evidence()` registers evidence nodes and automatically constructs three edges:
-      1. `Target --[supported_by]--> EvidenceNode`
-      2. `EvidenceNode --[reported_in]--> PMID:xxxx`
-      3. `Disease --[relation]--> Target`
+Builds an in-memory heterogeneous knowledge graph.
+- **`models.py`**: `DiseaseNode`, `TargetNode`, `PaperNode`, `EvidenceNode`, `EvidenceEdge`, `EvidenceGraph`.
+- **`graph.py`**: `EvidenceGraphBuilder` constructing multi-hop edges (`Target --[supported_by]--> Evidence`, `Evidence --[reported_in]--> PMID`, `Disease --[relation]--> Target`).
 
 ---
 
 ### 3.7. `evidence_fusion/`
-Fuses structured database scores with literature evidence into a unified score.
-
-- **`models.py`**:
-  - `TargetFusionInput`: Target ID, symbol, structured score, total evidence count, strong evidence count, moderate evidence count, and weak evidence count.
-  - `TargetFusionResult`: Extends input with calculated `literature_score`, `literature_status` (`evidence_found` or `no_evidence`), and final `fused_score`.
+Combines structured database scores with literature evidence into a unified score.
+- **`models.py`**: `TargetFusionInput`, `TargetFusionResult`.
 - **`fusion.py`**:
-  - `EvidenceFusion`:
-    - `build_target_input()` queries an `EvidenceGraph` to tally evidence for a target by strength.
-    - Literature score calculation:
-      $$\text{Literature Score} = \min\left(1.0, \frac{\text{strong} \times 1.0 + \text{moderate} \times 0.6 + \text{weak} \times 0.3}{\text{total\_evidence\_count}}\right)$$
-      *(Yields 0.0 if evidence count is 0).*
-    - Fused score calculation:
-      $$\text{Fused Score} = (\text{structured\_score} \times w_{\text{struct}}) + (\text{literature\_score} \times w_{\text{lit}})$$
-      *(Default weights: $w_{\text{struct}} = 0.6$, $w_{\text{lit}} = 0.4$).*
+  $$\text{Literature Score} = \min\left(1.0, \frac{\text{strong} \times 1.0 + \text{moderate} \times 0.6 + \text{weak} \times 0.3}{\text{total\_evidence\_count}}\right)$$
+  $$\text{Fused Score} = (\text{structured\_score} \times 0.60) + (\text{literature\_score} \times 0.40)$$
 
 ---
 
 ### 3.8. `target_prioritization/`
-Selects the top candidate targets from fusion results.
+Selects and ranks top candidate targets.
+- **`models.py`**: `PrioritizedTarget`, `TargetPrioritizationResult`.
+- **`prioritizer.py`**: Sorts descending by fused score, assigns 1-based ranks, and outputs top-$N$ candidates.
 
+---
+
+### 3.9. `compound_retriever/` (Step 6)
+Discovers candidate natural and bioactive compounds via dual independent routes:
+- **`models.py`**: `BioactivityRecord`, `TargetRelation`, `CompoundCandidate`, `CompoundRetrievalResult`.
+- **`chembl_client.py`**: Queries ChEMBL REST API (`/target.json`, `/activity.json`, `/molecule.json`) for binding and functional assays (`IC50`, `Ki`, `Kd`, `EC50`) against prioritized target proteins.
+- **`pubmed_compound.py`**: Mines PubMed for disease-specific natural product literature.
+- **`retriever.py`**: Orchestrates Route A (Disease -> Natural Lit) and Route B (Protein -> ChEMBL Bioactivities + Protein PubMed), merges by InChIKey/ChEMBL ID/Name, and flags **Dual-Route Hits**.
+
+---
+
+### 3.10. `compound_verifier/` (Step 7)
+Chemically standardizes candidate compounds, retrieves authoritative chemical descriptors, distinguishes natural vs. synthetic origin, and retains comprehensive audit provenance:
 - **`models.py`**:
-  - `PrioritizedTarget`: Rank (1..$N$), target ID, symbol, fused score, structured score, literature score, evidence count, and literature status.
-  - `TargetPrioritizationResult`: Total targets count, selected count, and ordered list of `PrioritizedTarget`.
-- **`prioritizer.py`**:
-  - `TargetPrioritizer`:
-    - Validates inputs (`fusion_results` must not be empty, `top_n > 0`).
-    - Sorts targets descending by `fused_score`.
-    - Returns top-$N$ targets with 1-based ranks. Does not alter or invent new biological scores.
+  - `NaturalOriginStatus`: Enum (`NATURAL`, `NATURAL_DERIVATIVE`, `SYNTHETIC`, `UNVERIFIED`).
+  - `CompoundIdentity`: Standardized descriptors (`name`, `iupac_name`, `pubchem_cid`, `inchikey`, `canonical_smiles`, `isomeric_smiles`, `molecular_formula`, `molecular_weight`, `synonyms`).
+  - `NaturalOriginVerification`: Assessment record (`status`, `is_natural`, `confidence`, `natural_product_class`, `subclass`, `determination_method`, `evidence_sources`, `notes`).
+  - `VerifiedCompound`: Complete unified representation combining identity, origin verification, Step 6 target relations, bioactivities, citations, and full provenance.
+  - `CompoundVerificationBatchResult`: Aggregated batch results with category breakdown counts.
+- **`pubchem_client.py`**:
+  - NCBI PubChem PUG REST API client with request rate throttling (200ms delay) and in-memory LRU caching.
+  - Multi-strategy resolver: resolves by PubChem CID, by Standard InChIKey, by compound Name, or by SMILES.
+  - Validates InChIKey syntax (14-10-1 format).
+  - Fetches authoritative chemical synonyms and trade names.
+- **`natural_classifier.py`**:
+  - Multi-tier classification engine:
+    1. *Curated Phytochemical Taxonomy*: Comprehensive registry covering Flavonoids, Polyphenols, Alkaloids, Terpenoids, Anthraquinones, Lignans, Stilbenes, Withanolides, Carotenoids, and Organosulfur compounds with specific subclasses and botanical origins.
+    2. *Semi-Synthetic / Natural Derivatives*: Tracks natural scaffold derivatives (Aspirin, Dihydroartemisinin, Artemether, Docetaxel, Pravastatin, Simvastatin).
+    3. *Curated Synthetic Registry*: Identifies synthetic pharmaceuticals (Metformin, Rosiglitazone, Glimepiride, Sitagliptin, Dapagliflozin, Imatinib, Ibuprofen, etc.).
+    4. *Database Cross-Verification*: Incorporates ChEMBL `natural_product` flags and molecule type annotations.
+- **`verifier.py`**:
+  - `CompoundVerifier`: Master orchestrator for single and batch compound verification.
+  - Standardizes compound IDs (`CID:xxx`, `CHEMBLxxx`, or `LIT:xxx`).
+  - Merges and retains all Step 6 retrieval provenance, PMIDs, snippets, and target relations.
+  - Sorts verified compounds prioritizing verified natural products and dual-route hits.
 
 ---
 
 ## 4. Test Suite and Verification
 
-The repository includes a comprehensive set of unit and integration test scripts:
-
 | Test Script | Scope | Purpose |
 |---|---|---|
-| `test_disease_normalizer.py` | Integration / Live API | Queries OLS API with multiple disease terms ("Type 2 diabetes", "Alzheimer", "Intervertebral Disc Disease"). |
-| `test_structured_retriever_unit.py` | Unit | Tests target model creation, evidence parsing, score filtering, and target deduplication. |
-| `structured_retriever/test_structured_retriever.py` | Integration / Live API | Queries Open Targets API for MONDO:0005148 and outputs top 50 targets. |
-| `test_query_builder_unit.py` | Unit | Tests PubMed query string generation, trimming, and error handling for empty parameters. |
-| `test_literature_retriever_unit.py` | Unit | Tests `Paper` model instantiation, empty retrieval states, and input validation. |
-| `test_rag_pipeline.py` | Component Integration | Retrieves literature, builds vector store, embeds text, and runs semantic search + reranking. |
-| `test_evidence_extractor.py` | Component Integration | Runs RAG pipeline and extracts structured evidence claims from full paper abstracts. |
-| `test_evidence_graph.py` | Component Integration | Ingests literature, builds RAG, extracts evidence, and constructs the complete heterogeneous graph. |
-| `test_evidence_fusion.py` | Unit | Tests mathematical fusion calculation on a synthetic target input. |
-| `test_evidence_fusion_graph.py` | Unit / Mock Graph | Tests `EvidenceFusion.build_target_input()` directly using synthetic graph nodes. |
-| `test_evidence_fusion_integration.py` | Full Pipeline Integration | Executes Steps 1 through 7 end-to-end: Open Targets $\to$ PubMed $\to$ RAG $\to$ Graph $\to$ Evidence Fusion. |
-| `test_target_prioritization.py` | Unit | Verifies rank assignment and sorting on sample fusion results (KCNJ11, ABCC8, GCK). |
+| `test_disease_normalizer.py` | Integration / Live API | Queries OLS API with disease terms ("Type 2 diabetes", "Alzheimer"). |
+| `test_structured_retriever_unit.py` | Unit | Tests target model creation, evidence parsing, and deduplication. |
+| `structured_retriever/test_structured_retriever.py` | Integration / Live API | Queries Open Targets API for MONDO:0005148. |
+| `test_query_builder_unit.py` | Unit | Tests PubMed query string generation. |
+| `test_literature_retriever_unit.py` | Unit | Tests `Paper` model instantiation and input validation. |
+| `test_rag_pipeline.py` | Component Integration | Semantic search and cross-encoder reranking. |
+| `test_evidence_extractor.py` | Component Integration | Biological assertion extraction from abstracts. |
+| `test_evidence_graph.py` | Component Integration | Heterogeneous graph assembly. |
+| `test_evidence_fusion.py` | Unit | Mathematical score fusion unit test. |
+| `test_evidence_fusion_graph.py` | Unit | Graph-to-fusion unit test. |
+| `test_evidence_fusion_integration.py` | Full Pipeline Integration | Executes Steps 1 through 5 end-to-end. |
+| `test_target_prioritization.py` | Unit | Verifies rank assignment and sorting on candidate targets. |
+| `test_compound_retriever.py` | Component & Live API | Tests Step 6 dual-route natural compound retrieval (ChEMBL + PubMed). |
+| `test_compound_verifier.py` | Component & Live API | Tests Step 7 PubChem CID resolution, InChIKey validation, natural vs. synthetic classification, and provenance. |
 
 ---
 
-## 5. Current State & Future Roadmap
-
-### 5.1. Current State
-- **Core Pipeline Components Complete**: All 8 domain packages are fully implemented with Pydantic data schemas, rigorous validation, and standalone test scripts.
-- **Working End-to-End Core**: `test_evidence_fusion_integration.py` successfully demonstrates end-to-end operation from Open Targets down to fused candidate scores.
-
-### 5.2. Observed Gaps & Opportunities
-1. **`main.py` Entry Point**:
-   - `main.py` is currently an empty file. An end-to-end CLI or programmatic pipeline orchestrator can be added to unify `DiseaseNormalizer` through `TargetPrioritizer` in a single command.
-2. **Target Prioritization Integration**:
-   - `TargetPrioritizer` is tested as an isolated component in `test_target_prioritization.py`, but has not yet been linked into the final step of `test_evidence_fusion_integration.py`.
-3. **Empty Directories**:
-   - `database/` and `retrieval/` are empty placeholders, likely intended for database persistence (SQLite/PostgreSQL) and unified retrieval abstractions.
-4. **Unused File Stubs**:
-   - `disease_normalizer/disease_ontology.py` and `disease_normalizer/mondo.py` are empty files.
-5. **Persistence**:
-   - The FAISS vector store and evidence graph are currently in-memory only. Adding disk-backed persistence (e.g. SQLite for graphs, Faiss index serialization) would enable caching across runs.
-6. **LLM-Based Extraction**:
-   - Currently, `evidence_extractor` relies on regex and keyword dictionaries. An LLM-backed extractor or BioBERT/SciBERT model could complement rule-based classification for higher extraction recall and deeper semantic understanding.
-
----
-
-## 6. Repository File Inventory
+## 5. Repository File Inventory
 
 ```
-biomedical_ai/
-├── README.md                                # Project overview, quickstart, and test commands
+Disease-Compound-Analysis/
+├── README.md                                # Project overview, setup, and test commands
 ├── CodeBase.md                              # Comprehensive architectural codebase documentation
-├── requirements.txt                         # Dependencies (PyTorch, Transformers, FAISS, Pydantic, etc.)
-├── main.py                                  # Pipeline entrypoint (currently empty)
+├── requirements.txt                         # Python dependencies
+├── server.py                                # Local HTTP server exposing REST APIs + frontend
+├── pipeline.py                              # End-to-end target discovery pipeline orchestrator
 │
-├── disease_normalizer/                      # Disease normalization & ontology resolution
+├── disease_normalizer/                      # Step 1: Disease normalization & ontology resolution
 │   ├── __init__.py                          # Exports DiseaseNormalizer
-│   ├── models.py                            # DiseaseInput, DiseaseConcept, DiseaseIdentifiers, etc.
+│   ├── models.py                            # DiseaseInput, DiseaseConcept, DiseaseIdentifiers
 │   ├── preprocess.py                        # String cleaning & normalization
 │   ├── ols.py                               # EMBL-EBI OLS4 API client
 │   ├── resolver.py                          # Scoring & candidate evaluation
 │   ├── normalizer.py                        # Multi-ontology search & canonical concept resolution
-│   ├── disease_ontology.py                  # (Empty stub)
-│   └── mondo.py                             # (Empty stub)
+│   └── suggester.py                         # Autocomplete and spelling suggestion engine
 │
-├── structured_retriever/                    # Open Targets association retrieval
+├── structured_retriever/                    # Step 2: Open Targets association retrieval
 │   ├── __init__.py                          # Exports StructuredRetriever
 │   ├── model.py                             # TargetCandidate, TargetEvidence, StructuredRetrievalResult
 │   ├── open_targets.py                      # Open Targets GraphQL API client
-│   ├── retriever.py                         # Pagination, deduplication, filtering, scoring
-│   ├── test_structured_retriever.py         # Live Open Targets integration test
-│   └── test_structured_retriever_unit.py    # Unit tests for structured retriever
+│   └── retriever.py                         # Pagination, deduplication, filtering, scoring
 │
-├── literature_retriever/                    # PubMed search and retrieval
+├── literature_retriever/                    # Step 3: Multi-source literature harvesting
 │   ├── __init__.py                          # Module init
 │   ├── models.py                            # Paper, LiteratureRetrievalResult, BatchLiteratureResult
 │   ├── query_builder.py                     # PubMed query syntax builder
 │   ├── pubmed.py                            # NCBI Entrez E-Utilities client & XML parser
-│   └── retriever.py                         # Single & batch literature retrieval
+│   ├── europe_pmc.py                        # EMBL-EBI Europe PMC REST client
+│   ├── open_targets_literature.py           # Open Targets text-mined literature client
+│   └── retriever.py                         # Single & batch multi-source literature retrieval
 │
-├── biomedical_rag/                          # Vector indexing & semantic reranking
+├── biomedical_rag/                          # Step 3-4: Vector indexing & semantic reranking
 │   ├── __init__.py                          # Module init
 │   ├── models.py                            # RAGDocument, RAGChunk, RerankedResult
 │   ├── document_processor.py                # Converts Paper to RAGDocument
@@ -354,39 +278,57 @@ biomedical_ai/
 │   ├── reranker.py                          # CrossEncoder reranker (ms-marco-MiniLM-L-6-v2)
 │   └── rag_pipeline.py                      # Unified RAG coordinator
 │
-├── evidence_extractor/                      # Rule-based NLP biological claim extraction
-│   ├── __init__.py                          # Exports EvidenceExtractor, EvidenceItem, etc.
+├── evidence_extractor/                      # Step 4: Rule-based biological assertion extraction
+│   ├── __init__.py                          # Exports EvidenceExtractor, EvidenceItem
 │   ├── models.py                            # EvidenceItem, EvidenceExtractionResult
 │   ├── rules.py                             # Regex, entity detection, relation & strength rules
 │   └── extractor.py                         # Sentence sliding context extractor & confidence calculator
 │
-├── evidence_graph/                          # Heterogeneous evidence graph
+├── evidence_graph/                          # Step 4-5: Heterogeneous evidence graph
 │   ├── __init__.py                          # Exports nodes, edges, EvidenceGraphBuilder
 │   ├── models.py                            # DiseaseNode, TargetNode, PaperNode, EvidenceNode, EvidenceEdge
 │   └── graph.py                             # Graph builder assembling multi-hop relationships
 │
-├── evidence_fusion/                         # Score fusion engine
+├── evidence_fusion/                         # Step 5: Score fusion engine
 │   ├── __init__.py                          # Exports EvidenceFusion, TargetFusionInput, TargetFusionResult
 │   ├── models.py                            # Input & result data models
 │   └── fusion.py                            # Weighted multi-modal evidence fusion engine
 │
-├── target_prioritization/                   # Target sorting & selection
+├── target_prioritization/                   # Step 5: Target sorting & selection
 │   ├── __init__.py                          # Exports TargetPrioritizer, PrioritizedTarget
 │   ├── models.py                            # PrioritizedTarget, TargetPrioritizationResult
 │   └── prioritizer.py                       # Sorting, top-N slicing, ranking
 │
-├── database/                                # (Empty directory for future persistence)
-├── retrieval/                               # (Empty directory for future abstractions)
+├── compound_retriever/                      # Step 6: Natural compound candidate retrieval
+│   ├── __init__.py                          # Exports NaturalCompoundRetriever
+│   ├── models.py                            # BioactivityRecord, TargetRelation, CompoundCandidate
+│   ├── chembl_client.py                     # EMBL-EBI ChEMBL REST API client
+│   ├── pubmed_compound.py                   # PubMed natural compound mining client
+│   └── retriever.py                         # Route A + Route B orchestrator & deduplication
 │
-├── test_disease_normalizer.py               # OLS disease normalization test
-├── test_structured_retriever_unit.py        # Structured retriever unit test
-├── test_query_builder_unit.py               # PubMed query builder unit test
-├── test_literature_retriever_unit.py        # Literature retriever unit test
-├── test_rag_pipeline.py                     # RAG pipeline test
-├── test_evidence_extractor.py               # Evidence extractor test
-├── test_evidence_graph.py                   # Evidence graph construction test
-├── test_evidence_fusion.py                  # Mathematical evidence fusion unit test
-├── test_evidence_fusion_graph.py            # Graph-to-fusion unit test
-├── test_evidence_fusion_integration.py      # End-to-end integration test (Steps 1–7)
-└── test_target_prioritization.py            # Target prioritization ranking test
+├── compound_verifier/                       # Step 7: Compound identity & natural-origin verification
+│   ├── __init__.py                          # Exports CompoundVerifier, PubChemClient, models
+│   ├── models.py                            # CompoundIdentity, NaturalOriginVerification, VerifiedCompound
+│   ├── pubchem_client.py                    # NCBI PubChem PUG REST API client with caching
+│   ├── natural_classifier.py                # Phytochemical taxonomy & synthetic drug classifier
+│   └── verifier.py                          # Single & batch verification and provenance manager
+│
+├── frontend/                                # Interactive browser application
+│   ├── index.html                           # App layout, stepper, targets and compounds tabs
+│   ├── style.css                            # Modern responsive UI design
+│   └── app.js                               # Interactive frontend logic and API integration
+│
+├── test_disease_normalizer.py               # Step 1 test
+├── test_structured_retriever_unit.py        # Step 2 test
+├── test_query_builder_unit.py               # Step 3 test
+├── test_literature_retriever_unit.py        # Step 3 test
+├── test_rag_pipeline.py                     # Step 3-4 test
+├── test_evidence_extractor.py               # Step 4 test
+├── test_evidence_graph.py                   # Step 4-5 test
+├── test_evidence_fusion.py                  # Step 5 test
+├── test_evidence_fusion_graph.py            # Step 5 test
+├── test_evidence_fusion_integration.py      # Steps 1–5 end-to-end integration test
+├── test_target_prioritization.py            # Step 5 ranking test
+├── test_compound_retriever.py               # Step 6 test (Route A + Route B)
+└── test_compound_verifier.py                # Step 7 test (PubChem + Origin verification)
 ```
