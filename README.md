@@ -1,24 +1,26 @@
 # Biomedical AI — Disease Target Discovery & Evidence Analysis
 
-A modular biomedical evidence pipeline for disease normalization, structured target retrieval, literature retrieval, evidence extraction, evidence graphs, evidence fusion, and target prioritization. Includes a local web server and browser-based UI for interactive disease analysis.
+A modular biomedical evidence pipeline for disease normalization, structured target retrieval, literature retrieval, evidence extraction, evidence graphs, evidence fusion, target prioritization, natural compound candidate retrieval, and compound identity verification. Includes a local web server and browser-based UI for interactive disease analysis.
 
 ---
 
 ## Components
 
-| Module | Description |
-|---|---|
-| `disease_normalizer/` | Normalizes disease names and resolves ontology identifiers (MONDO, DOID, EFO, MeSH) |
-| `structured_retriever/` | Retrieves disease-target associations from structured sources such as Open Targets |
-| `literature_retriever/` | Builds literature queries and harvests scientific literature across PubMed, EMBL-EBI Europe PMC, and Open Targets |
-| `biomedical_rag/` | Processes, chunks, embeds, stores, retrieves, and reranks literature evidence |
-| `evidence_extractor/` | Extracts structured evidence from retrieved text |
-| `evidence_graph/` | Represents diseases, targets, papers, and evidence relationships |
-| `evidence_fusion/` | Combines structured and literature evidence into a fused score |
-| `target_prioritization/` | Sorts fused target results and selects the top candidates |
-| `frontend/` | Browser-based UI served by the local HTTP server |
-| `server.py` | Local HTTP server exposing REST API + frontend |
-| `pipeline.py` | End-to-end pipeline orchestrator |
+| Module | Step | Description |
+|---|---|---|
+| `disease_normalizer/` | Step 1 | Normalizes disease names and resolves ontology identifiers (MONDO, DOID, EFO, MeSH) |
+| `structured_retriever/` | Step 2 | Retrieves disease-target associations from structured sources such as Open Targets |
+| `literature_retriever/` | Step 3 | Builds literature queries and harvests scientific literature across PubMed, EMBL-EBI Europe PMC, and Open Targets |
+| `biomedical_rag/` | Step 3-4 | Processes, chunks, embeds, stores, retrieves, and reranks literature evidence |
+| `evidence_extractor/` | Step 4 | Extracts structured biological assertions from retrieved text |
+| `evidence_graph/` | Step 4-5 | Represents diseases, targets, papers, and evidence relationships |
+| `evidence_fusion/` | Step 5 | Combines structured and literature evidence into a fused score |
+| `target_prioritization/` | Step 5 | Sorts fused target results and selects the top candidates |
+| `compound_retriever/` | Step 6 | Discovers candidate bioactive and natural compounds via dual routes (Disease lit + Protein ChEMBL) |
+| `compound_verifier/` | Step 7 | Standardizes chemical identity (PubChem CID, SMILES, InChIKey), classifies natural vs. synthetic origin, and retains provenance |
+| `frontend/` | UI | Browser-based interactive UI served by the local HTTP server |
+| `server.py` | API | Local HTTP server exposing REST APIs (`/api/analyze`, `/api/compounds`, `/api/compounds/verify`) + frontend |
+| `pipeline.py` | Orchestration | End-to-end target discovery pipeline orchestrator |
 
 ---
 
@@ -26,7 +28,7 @@ A modular biomedical evidence pipeline for disease normalization, structured tar
 
 - **Python 3.10 or higher** — [Download Python](https://www.python.org/downloads/)
 - **Git** — [Download Git](https://git-scm.com/downloads)
-- An active internet connection (for literature retrieval from PubMed / Europe PMC)
+- An active internet connection (for literature retrieval and PubChem / ChEMBL APIs)
 
 ---
 
@@ -41,38 +43,28 @@ git clone https://github.com/Swarup215/Disease-Compound-Analysis.git
 cd Disease-Compound-Analysis
 ```
 
-### 2. Checkout the Feature Branch
-
-```cmd
-git checkout feature/multi-source-literature-retrieval
-```
-
-### 3. Create a Virtual Environment
+### 2. Create a Virtual Environment
 
 ```cmd
 python -m venv venv
 ```
 
-### 4. Activate the Virtual Environment
+### 3. Activate the Virtual Environment
 
 ```cmd
 venv\Scripts\activate.bat
 ```
-'''powershell
-.venv\Scripts\Activate.ps1
-'''
-> You should now see `(venv)` at the start of your command prompt, confirming the environment is active.
+*(or in PowerShell: `.\venv\Scripts\Activate.ps1`)*
 
-### 5. Install Dependencies
+> You should now see `(venv)` at the start of your command prompt.
+
+### 4. Install Dependencies
 
 ```cmd
 pip install -r requirements.txt
 ```
 
-> This installs all required packages including PyTorch, FAISS, sentence-transformers, scikit-learn, and more.  
-> **Note:** First-time installation may take several minutes depending on your internet speed.
-
-### 6. Run the Local Web Server
+### 5. Run the Local Web Server
 
 ```cmd
 python server.py
@@ -84,15 +76,13 @@ You should see:
 Biomedical AI Server running on http://localhost:8000
 ```
 
-### 7. Open the Application in Your Browser
+### 6. Open the Application in Your Browser
 
 Open your browser and navigate to:
 
 ```
 http://127.0.0.1:8000
 ```
-
-> If `localhost` does not resolve, use `127.0.0.1` directly.
 
 ---
 
@@ -104,33 +94,15 @@ http://127.0.0.1:8000
 | `/api/health` | GET | Health check — returns `{"status": "healthy"}` |
 | `/api/suggest?q=<query>` | GET | Disease name autocomplete suggestions |
 | `/api/suggest` | POST | Disease suggestions via JSON body `{"query": "diabetes"}` |
-| `/api/analyze` | POST | Run the full biomedical pipeline for a disease |
-
-### Example: Analyze a Disease via CMD (curl)
-
-```cmd
-curl -X POST http://127.0.0.1:8000/api/analyze ^
-  -H "Content-Type: application/json" ^
-  -d "{\"disease\": \"Type 2 diabetes\"}"
-```
-
-### Example: Health Check
-
-```cmd
-curl http://127.0.0.1:8000/api/health
-```
+| `/api/analyze` | POST | Run Steps 1–5 of the biomedical pipeline for a disease |
+| `/api/compounds` | POST | Run Step 6 & 7: Retrieve and verify natural compounds for prioritized targets |
+| `/api/compounds/verify` | POST | Step 7: Verify identity and natural/synthetic status for arbitrary compound lists |
 
 ---
 
 ## Running Tests (CMD)
 
-Make sure the virtual environment is active (`venv\Scripts\activate.bat`) before running any test.
-
-### Disease Normalizer Test
-
-```cmd
-python test_disease_normalizer.py
-```
+Make sure the virtual environment is active (`venv\Scripts\activate.bat`) before running tests.
 
 ### All Available Tests
 
@@ -145,55 +117,38 @@ python test_literature_retriever_unit.py
 python test_query_builder_unit.py
 python test_rag_pipeline.py
 python test_target_prioritization.py
+python test_compound_retriever.py
+python test_compound_verifier.py
 ```
-
-> `test_evidence_fusion_integration.py` calls external services and requires an active internet connection.
 
 ---
 
-## Target Prioritization
-
-Evidence Fusion calculates the combined score for each target. Target Prioritization then sorts those existing fusion results and returns the requested number of highest-scoring candidates.
+## Step 7: Compound Identity & Natural-Origin Verification
 
 ```python
-from target_prioritization import TargetPrioritizer
+from compound_verifier import CompoundVerifier
 
-result = TargetPrioritizer().prioritize(
-    fusion_results=fusion_results,
-    top_n=10
-)
+verifier = CompoundVerifier()
+
+# Verify single compound
+result = verifier.verify_compound({"name": "quercetin"})
+print(result.identity.pubchem_cid)            # 5280343
+print(result.identity.inchikey)              # REFJWTPEDVJJIY-UHFFFAOYSA-N
+print(result.natural_verification.status)    # NaturalOriginStatus.NATURAL
+print(result.natural_verification.natural_product_class) # Flavonoid
+
+# Verify batch of compounds from Step 6
+batch = verifier.verify_batch(candidates, disease_name="Type 2 diabetes")
 ```
-
-The prioritizer rejects empty fusion results and non-positive `top_n` values.
 
 ---
 
 ## Stopping the Server
 
-In the CMD window where the server is running, press:
-
-```
-Ctrl + C
-```
-
----
+Press `Ctrl + C` in the CMD window.
 
 ## Deactivating the Virtual Environment
-
-When you are done, deactivate the virtual environment with:
 
 ```cmd
 deactivate
 ```
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---|---|
-| `python` not recognized | Ensure Python is added to PATH during installation |
-| `venv\Scripts\activate.bat` fails | Run CMD as Administrator or check Python installation |
-| `pip install` errors | Upgrade pip first: `python -m pip install --upgrade pip` |
-| Site cannot be reached at `localhost:8000` | Use `http://127.0.0.1:8000` instead |
-| Port 8000 already in use | Run `netstat -ano \| findstr :8000` to find the PID, then `taskkill /PID <PID> /F` |

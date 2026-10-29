@@ -34,7 +34,6 @@ document.addEventListener('DOMContentLoaded', () => {
   structWeightSlider.addEventListener('input', (e) => {
     const val = parseFloat(e.target.value);
     structWeightVal.textContent = val.toFixed(2);
-    // Optionally balance literature weight
     const litVal = Math.max(0, 1.0 - val);
     litWeightSlider.value = litVal;
     litWeightVal.textContent = litVal.toFixed(2);
@@ -273,7 +272,6 @@ async function startPipelineExecution(payload) {
   runPipelineBtn.disabled = true;
   runPipelineBtn.style.opacity = '0.6';
 
-  // Step simulation intervals for smooth feedback while server computes
   let pct = 5;
   const stepItems = [
     document.getElementById('step1'),
@@ -335,7 +333,6 @@ async function startPipelineExecution(payload) {
     const data = await response.json();
     currentResults = data;
 
-    // Finish progress
     pct = 100;
     progressPercent.textContent = '100%';
     progressBarFill.style.width = '100%';
@@ -348,10 +345,8 @@ async function startPipelineExecution(payload) {
       resultsSection.classList.remove('hidden');
       runPipelineBtn.disabled = false;
       runPipelineBtn.style.opacity = '1';
-      // Enable the Fetch Natural Compounds button
       const fetchBtn = document.getElementById('fetchCompoundsBtn');
       if (fetchBtn) fetchBtn.disabled = false;
-      // Scroll to results
       resultsSection.scrollIntoView({ behavior: 'smooth' });
     }, 450);
 
@@ -416,7 +411,6 @@ function renderResults(data) {
   const papers = data.papers || [];
   const graph = data.graph || {};
 
-  // Overview metrics
   document.getElementById('resDiseaseName').textContent = disease.canonical_name || disease.input;
   document.getElementById('resTotalProteins').textContent = metrics.total_targets_found || 0;
   document.getElementById('resAnalyzedProteins').textContent = `${metrics.analyzed_targets || 0} candidate targets`;
@@ -431,7 +425,6 @@ function renderResults(data) {
       : 'PubMed, Europe PMC & Open Targets';
   }
 
-  // Disease ID badges
   const badgesContainer = document.getElementById('resDiseaseBadges');
   badgesContainer.innerHTML = '';
   const ids = disease.identifiers || {};
@@ -440,7 +433,6 @@ function renderResults(data) {
   if (ids.doid) badgesContainer.appendChild(createBadge('DOID: ' + ids.doid, 'badge-mono'));
   if (ids.mesh) badgesContainer.appendChild(createBadge('MeSH: ' + ids.mesh, 'badge-mono'));
 
-  // Render Target Cards
   const targetsList = document.getElementById('targetsList');
   targetsList.innerHTML = '';
 
@@ -456,7 +448,6 @@ function renderResults(data) {
     const evidenceCount = target.evidence_count || 0;
     const hasEvidence = evidenceCount > 0;
 
-    // Generate evidence items HTML (Where evidence is found)
     let evidenceItemsHtml = '';
     if (hasEvidence && target.evidence_items) {
       evidenceItemsHtml = target.evidence_items.map((ev, idx) => {
@@ -500,12 +491,10 @@ function renderResults(data) {
 
     card.innerHTML = `
       <div class="target-main-row">
-        <!-- Rank -->
         <div class="target-rank-col">
           <div class="${rankClass}">#${target.rank}</div>
         </div>
 
-        <!-- Target Info -->
         <div class="target-info-col">
           <h4>
             <span>${escapeHtml(target.target_symbol)}</span>
@@ -514,7 +503,6 @@ function renderResults(data) {
           <p class="target-full-name" title="${escapeHtml(target.target_name)}">${escapeHtml(target.target_name)}</p>
         </div>
 
-        <!-- Fused Score -->
         <div class="target-score-col">
           <span class="score-title">Fused Score</span>
           <span class="score-num">${(target.fused_score * 100).toFixed(1)}%</span>
@@ -523,7 +511,6 @@ function renderResults(data) {
           </div>
         </div>
 
-        <!-- Score Breakdown -->
         <div class="score-breakdown-col target-cell-hide-mobile">
           <div class="breakdown-row">
             <span>Open Targets:</span>
@@ -535,7 +522,6 @@ function renderResults(data) {
           </div>
         </div>
 
-        <!-- Evidence Pill -->
         <div class="evidence-badge-col target-cell-hide-mobile">
           <span class="evidence-pill ${hasEvidence ? 'found' : 'none'}">
             ${hasEvidence ? `✓ ${evidenceCount} Evidence Claims` : 'No direct claims'}
@@ -547,7 +533,6 @@ function renderResults(data) {
           ` : ''}
         </div>
 
-        <!-- Expand Button -->
         <div class="target-expand-col">
           <button type="button" class="expand-toggle-btn" title="View where literature evidence is found">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -557,7 +542,6 @@ function renderResults(data) {
         </div>
       </div>
 
-      <!-- Expandable Evidence Drawer (Where evidence is found) -->
       <div class="evidence-drawer" id="drawer-${target.target_symbol}">
         <div class="drawer-header">
           <h5>
@@ -575,7 +559,6 @@ function renderResults(data) {
       </div>
     `;
 
-    // Toggle expand
     const btn = card.querySelector('.expand-toggle-btn');
     const drawer = card.querySelector('.evidence-drawer');
     btn.addEventListener('click', () => {
@@ -587,7 +570,6 @@ function renderResults(data) {
     targetsList.appendChild(card);
   });
 
-  // Render Papers Tab
   const papersList = document.getElementById('papersList');
   papersList.innerHTML = '';
   papers.forEach(p => {
@@ -617,7 +599,6 @@ function renderResults(data) {
     papersList.appendChild(pCard);
   });
 
-  // Render Graph Tab Stats & Edges
   document.getElementById('graphDiseaseCount').textContent = graph.diseases_count || 1;
   document.getElementById('graphTargetCount').textContent = graph.targets_count || targets.length;
   document.getElementById('graphPaperCount').textContent = graph.papers_count || papers.length;
@@ -637,7 +618,6 @@ function renderResults(data) {
     edgesList.appendChild(row);
   });
 
-  // Raw JSON
   document.getElementById('jsonViewer').querySelector('code').textContent = JSON.stringify(data, null, 2);
 }
 
@@ -695,38 +675,31 @@ function downloadFile(content, fileName, contentType) {
 }
 
 // =========================================================================
-// NATURAL COMPOUNDS TAB
+// NATURAL COMPOUNDS & VERIFICATION TAB (STEPS 6 & 7)
 // =========================================================================
 
-let currentCompounds = null;  // full API response
-let allCompoundCards = [];    // keep references for filtering
+let currentCompounds = null;
+let allCompoundCards = [];
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Enable fetch button once a pipeline result is available
-  // (the button is enabled by renderResults)
-
-  // Fetch button
   document.getElementById('fetchCompoundsBtn').addEventListener('click', async () => {
     if (!currentResults) return;
     await fetchNaturalCompounds();
   });
 
-  // Filter input
   document.getElementById('compoundFilterInput').addEventListener('input', (e) => {
     filterCompounds(e.target.value);
   });
 
-  // Sort select
   document.getElementById('compoundSortSelect').addEventListener('change', (e) => {
     sortAndRenderCompounds(e.target.value);
   });
 
-  // CSV download
   document.getElementById('downloadCompoundsCsvBtn').addEventListener('click', () => {
     if (!currentCompounds) return;
     const csv = compoundsToCSV(currentCompounds.compounds);
     const slug = slugify(currentCompounds.disease_name || 'disease');
-    downloadFile(csv, `${slug}_natural_compounds.csv`, 'text/csv');
+    downloadFile(csv, `${slug}_natural_compounds_verified.csv`, 'text/csv');
   });
 });
 
@@ -741,7 +714,6 @@ async function fetchNaturalCompounds() {
   const fetchBtn    = document.getElementById('fetchCompoundsBtn');
   const loadingTxt  = document.getElementById('compoundsLoadingText');
 
-  // Build payload from current pipeline results
   const disease  = currentResults.disease.canonical_name || currentResults.disease.input;
   const synonyms = currentResults.disease.synonyms || [];
   const targets  = (currentResults.targets || []).slice(0, 10).map(t => ({
@@ -749,7 +721,6 @@ async function fetchNaturalCompounds() {
     name:   t.target_name,
   }));
 
-  // Show loading
   idleState.style.display   = 'none';
   summaryStrip.style.display = 'none';
   toolbar.style.display      = 'none';
@@ -759,15 +730,17 @@ async function fetchNaturalCompounds() {
 
   const loadingMessages = [
     'Searching PubMed for natural compounds associated with this disease…',
-    'Querying ChEMBL bioactivity database for protein-compound interactions…',
-    'Extracting compound names from literature abstracts…',
-    'Merging and deduplicating results across both retrieval routes…',
+    'Querying ChEMBL bioactivity database for target protein assays…',
+    'Extracting chemical candidates from literature abstracts…',
+    'Resolving PubChem CIDs, Standard InChIKeys & Canonical SMILES…',
+    'Verifying natural-origin status against phytochemical registries…',
+    'Distinguishing natural vs. synthetic entities and retaining audit trail…',
   ];
   let msgIdx = 0;
   const msgInterval = setInterval(() => {
     msgIdx = (msgIdx + 1) % loadingMessages.length;
     if (loadingTxt) loadingTxt.textContent = loadingMessages[msgIdx];
-  }, 3500);
+  }, 3000);
 
   try {
     const resp = await fetch('/api/compounds', {
@@ -780,7 +753,7 @@ async function fetchNaturalCompounds() {
 
     if (!resp.ok) {
       const err = await resp.json();
-      throw new Error(err.message || 'Compound retrieval failed');
+      throw new Error(err.message || 'Compound retrieval and verification failed');
     }
 
     const data = await resp.json();
@@ -790,7 +763,6 @@ async function fetchNaturalCompounds() {
     renderCompounds(data);
     fetchBtn.disabled = false;
 
-    // Update metric card
     const metricCard = document.getElementById('compoundsMetricCard');
     if (metricCard) metricCard.style.display = '';
     const totalEl = document.getElementById('resTotalCompounds');
@@ -819,10 +791,13 @@ function renderCompounds(data) {
   document.getElementById('cpStatDualNum').textContent  = data.dual_route_count;
   document.getElementById('cpStatRouteA').textContent   = data.route_a_count;
   document.getElementById('cpStatRouteB').textContent   = data.route_b_count;
+
+  const verifiedEl = document.getElementById('cpStatVerifiedNum');
+  if (verifiedEl) verifiedEl.textContent = data.verified_natural_count || 0;
+
   summaryStrip.style.display = 'flex';
   toolbar.style.display      = 'flex';
 
-  // Build and store all cards
   allCompoundCards = (data.compounds || []).map(c => buildCompoundCard(c));
   list.innerHTML = '';
   allCompoundCards.forEach(card => list.appendChild(card));
@@ -834,6 +809,8 @@ function buildCompoundCard(c) {
   card.dataset.name    = c.name;
   card.dataset.targets = (c.targets_targeted || []).join(' ').toLowerCase();
   card.dataset.routes  = (c.retrieval_routes || []).join(' ');
+  card.dataset.cid     = c.pubchem_cid || '';
+  card.dataset.class   = (c.natural_product_class || '').toLowerCase();
 
   // Route badges
   const routeMap = {
@@ -846,6 +823,28 @@ function buildCompoundCard(c) {
     return `<span class="route-badge ${cls}">${escapeHtml(label)}</span>`;
   }).join('');
 
+  // Step 7 Origin Badge
+  const originStatus = c.natural_origin_status || (c.natural_origin ? 'natural' : 'synthetic');
+  let originClass = 'unverified';
+  let originIcon = '❓';
+  let originText = 'Origin Unverified';
+
+  if (originStatus === 'natural') {
+    originClass = 'natural';
+    originIcon = '🌿';
+    originText = c.natural_product_class ? `Verified Natural · ${c.natural_product_class}` : 'Verified Natural';
+  } else if (originStatus === 'natural_derivative') {
+    originClass = 'natural_derivative';
+    originIcon = '🧪';
+    originText = c.natural_product_class ? `Natural Derivative · ${c.natural_product_class}` : 'Natural Derivative';
+  } else if (originStatus === 'synthetic') {
+    originClass = 'synthetic';
+    originIcon = '💊';
+    originText = c.subclass ? `Synthetic · ${c.subclass}` : 'Synthetic Entity';
+  }
+
+  const originBadgeHtml = `<span class="origin-badge ${originClass}">${originIcon} ${escapeHtml(originText)}</span>`;
+
   // Target tags
   const targetTagsHtml = (c.targets_targeted || []).map(t =>
     `<span class="target-tag">${escapeHtml(t)}</span>`
@@ -854,11 +853,26 @@ function buildCompoundCard(c) {
   // Detail chips
   const citationsHtml = c.citation_count
     ? `<span class="compound-detail-chip">📚 <strong>${c.citation_count}</strong> citations</span>` : '';
-  const naturalHtml = `<span class="compound-detail-chip">🌿 <strong>${c.natural_origin ? 'Natural' : 'Synthetic'}</strong>${c.natural_origin_source ? ' · ' + escapeHtml(c.natural_origin_source) : ''}</span>`;
   const potencyHtml = c.best_bioactivity_nM != null
     ? `<span class="compound-detail-chip">⚗️ Best: <strong>${formatPotency(c.best_bioactivity_nM)}</strong></span>` : '';
-  const chemblHtml = c.chembl_id && !c.chembl_id.startsWith('LIT:')
+  const formulaHtml = c.molecular_formula
+    ? `<span class="compound-detail-chip">🧪 <strong>${escapeHtml(c.molecular_formula)}</strong></span>` : '';
+  const mwHtml = c.molecular_weight
+    ? `<span class="compound-detail-chip">⚖️ ${Number(c.molecular_weight).toFixed(1)} g/mol</span>` : '';
+
+  // Chemical Identity Links
+  const pubchemHtml = c.pubchem_cid
+    ? `<a href="https://pubchem.ncbi.nlm.nih.gov/compound/${c.pubchem_cid}" target="_blank" rel="noopener" class="compound-pmid-link pubchem-link">PubChem: CID ${c.pubchem_cid} ↗</a>` : '';
+  const chemblHtml = c.chembl_id && !c.chembl_id.startsWith('LIT:') && !c.chembl_id.startsWith('CID:')
     ? `<a href="https://www.ebi.ac.uk/chembl/compound_report_card/${c.chembl_id}/" target="_blank" rel="noopener" class="compound-pmid-link">ChEMBL: ${escapeHtml(c.chembl_id)} ↗</a>` : '';
+
+  // InChIKey & SMILES copy chips
+  const inchikeyHtml = c.inchikey
+    ? `<span class="identity-chip" title="Click to copy InChIKey: ${escapeHtml(c.inchikey)}" onclick="navigator.clipboard.writeText('${escapeHtml(c.inchikey)}'); alert('Copied InChIKey to clipboard: ${escapeHtml(c.inchikey)}');">🔑 ${escapeHtml(c.inchikey.slice(0, 14))}… <small>(copy)</small></span>` : '';
+  
+  const smilesVal = c.canonical_smiles || c.smiles;
+  const smilesHtml = smilesVal
+    ? `<span class="identity-chip" title="Click to copy Canonical SMILES: ${escapeHtml(smilesVal)}" onclick="navigator.clipboard.writeText('${escapeHtml(smilesVal)}'); alert('Copied SMILES to clipboard!');">🧬 SMILES <small>(copy)</small></span>` : '';
 
   // Snippets (top 2)
   const snippets = c.provenance && c.provenance.snippets ? c.provenance.snippets.slice(0, 2) : [];
@@ -870,7 +884,7 @@ function buildCompoundCard(c) {
   const pmidsHtml = pmids.length
     ? `<div class="compound-pmids-row">${pmids.map(p => `<a class="compound-pmid-link" href="https://pubmed.ncbi.nlm.nih.gov/${escapeHtml(p)}/" target="_blank" rel="noopener">PMID: ${escapeHtml(p)} ↗</a>`).join('')}</div>` : '';
 
-  // Potency bar (relative, capped at 10 000 nM)
+  // Potency bar
   let potencyBarHtml = '';
   if (c.best_bioactivity_nM != null) {
     const pct = Math.min(100, Math.max(2, 100 - Math.log10(c.best_bioactivity_nM + 1) * 20));
@@ -881,17 +895,32 @@ function buildCompoundCard(c) {
       </div>`;
   }
 
+  // IUPAC Name
+  const iupacHtml = c.iupac_name
+    ? `<div style="font-size: 0.73rem; color: var(--text-dim); line-height: 1.35;"><strong>IUPAC:</strong> ${escapeHtml(c.iupac_name)}</div>`
+    : '';
+
   card.innerHTML = `
     <div class="compound-card-header">
       <span class="compound-name">${escapeHtml(c.name)}</span>
-      ${c.is_dual_route ? '<span class="dual-badge">⭐ Dual-Route</span>' : ''}
+      <div style="display: flex; gap: 6px; align-items: center;">
+        ${originBadgeHtml}
+        ${c.is_dual_route ? '<span class="dual-badge">⭐ Dual-Route</span>' : ''}
+      </div>
     </div>
 
     <div class="compound-routes-row">${routeBadgesHtml}</div>
 
     <div class="compound-details-row">
-      ${naturalHtml}${citationsHtml}${potencyHtml}
+      ${formulaHtml}${mwHtml}${citationsHtml}${potencyHtml}
     </div>
+
+    ${(inchikeyHtml || smilesHtml) ? `
+    <div class="compound-identity-row">
+      ${inchikeyHtml}${smilesHtml}
+    </div>` : ''}
+
+    ${iupacHtml}
 
     ${targetTagsHtml ? `
     <div class="compound-targets-section">
@@ -903,9 +932,9 @@ function buildCompoundCard(c) {
 
     ${snippetsHtml}
 
-    ${(pmids.length || chemblHtml) ? `
+    ${(pmids.length || chemblHtml || pubchemHtml) ? `
     <div class="compound-pmids-row">
-      ${chemblHtml}${pmidsHtml ? pmidsHtml : ''}
+      ${pubchemHtml}${chemblHtml}${pmidsHtml ? pmidsHtml : ''}
     </div>` : ''}
   `;
 
@@ -928,6 +957,8 @@ function filterCompounds(query) {
       (card.dataset.name || '') + ' ' +
       (card.dataset.targets || '') + ' ' +
       (card.dataset.routes || '') + ' ' +
+      (card.dataset.cid || '') + ' ' +
+      (card.dataset.class || '') + ' ' +
       (card.textContent || '')
     ).toLowerCase();
     return text.includes(q);
@@ -949,7 +980,7 @@ function sortAndRenderCompounds(mode) {
       return av - bv;
     });
   } else {
-    // default: dual first
+    // default: dual first, then natural
     compounds.sort((a, b) => {
       if (a.is_dual_route && !b.is_dual_route) return -1;
       if (!a.is_dual_route && b.is_dual_route) return 1;
@@ -963,12 +994,17 @@ function sortAndRenderCompounds(mode) {
 }
 
 function compoundsToCSV(compounds) {
-  const headers = ['Name', 'ChEMBL_ID', 'Natural_Origin', 'Source', 'Retrieval_Routes', 'Targets', 'Citations', 'Best_Potency_nM', 'Dual_Route', 'PMIDs'];
+  const headers = ['Name', 'PubChem_CID', 'InChIKey', 'Formula', 'Molecular_Weight', 'Origin_Status', 'Phytochemical_Class', 'ChEMBL_ID', 'Natural_Origin', 'Retrieval_Routes', 'Targets', 'Citations', 'Best_Potency_nM', 'Dual_Route', 'PMIDs'];
   const rows = (compounds || []).map(c => [
     `"${(c.name || '').replace(/"/g, '""')}"`,
+    c.pubchem_cid || '',
+    `"${c.inchikey || ''}"`,
+    `"${c.molecular_formula || ''}"`,
+    c.molecular_weight != null ? c.molecular_weight : '',
+    `"${c.natural_origin_status || ''}"`,
+    `"${c.natural_product_class || ''}"`,
     `"${c.chembl_id || ''}"`,
     c.natural_origin ? 'Yes' : 'No',
-    `"${(c.evidence_sources || []).join(';')}"`,
     `"${(c.retrieval_routes || []).join(';')}"`,
     `"${(c.targets_targeted || []).join(';')}"`,
     c.citation_count || 0,
@@ -978,4 +1014,3 @@ function compoundsToCSV(compounds) {
   ]);
   return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
 }
-

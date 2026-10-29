@@ -7,14 +7,16 @@ from pipeline import BiomedicalPipeline
 
 from disease_normalizer.suggester import get_disease_suggestions
 from compound_retriever import NaturalCompoundRetriever
+from compound_verifier import CompoundVerifier
 
 # Base directory for static files
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
-# Singleton pipeline instance for reuse
+# Singleton pipeline instances for reuse
 _pipeline = None
 _compound_retriever = None
+_compound_verifier = None
 
 
 def get_pipeline():
@@ -33,6 +35,13 @@ def get_compound_retriever():
             max_route_b_papers=10,
         )
     return _compound_retriever
+
+
+def get_compound_verifier():
+    global _compound_verifier
+    if _compound_verifier is None:
+        _compound_verifier = CompoundVerifier(timeout=15, enable_pubchem=True)
+    return _compound_verifier
 
 
 class BiomedicalHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -178,6 +187,7 @@ class BiomedicalHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 targets = payload.get("targets", [])
                 synonyms = payload.get("synonyms", [])
 
+                # Step 6: Candidate Retrieval
                 retriever = get_compound_retriever()
                 result = retriever.retrieve(
                     disease_name=disease,
@@ -185,43 +195,56 @@ class BiomedicalHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                     disease_synonyms=synonyms,
                 )
 
-                # Serialize to JSON-friendly dict
-                def compound_to_dict(c):
+                # Step 7: Identity & Natural-Origin Verification
+                verifier = get_compound_verifier()
+                verified_batch = verifier.verify_batch(
+                    candidates=result.compounds,
+                    disease_name=disease
+                )
+
+                # Serialize verified compounds to JSON-friendly dict
+                def verified_compound_to_dict(vc):
                     return {
-                        "compound_id": c.compound_id,
-                        "name": c.name,
-                        "synonyms": c.synonyms,
-                        "smiles": c.smiles,
-                        "inchikey": c.inchikey,
-                        "pubchem_cid": c.pubchem_cid,
-                        "chembl_id": c.chembl_id,
-                        "natural_origin": c.natural_origin,
-                        "natural_origin_source": c.natural_origin_source,
-                        "natural_product_class": c.natural_product_class,
-                        "retrieval_routes": c.retrieval_routes,
-                        "targets_targeted": c.targets_targeted,
-                        "evidence_sources": c.evidence_sources,
-                        "citation_count": c.citation_count,
-                        "best_bioactivity_nM": c.best_bioactivity_nM,
-                        "is_dual_route": (
-                            "disease_natural_literature" in c.retrieval_routes
-                            and ("protein_chembl_bioactivity" in c.retrieval_routes or "protein_literature" in c.retrieval_routes)
-                        ),
+                        "compound_id": vc.compound_id,
+                        "name": vc.name,
+                        "pubchem_cid": vc.identity.pubchem_cid,
+                        "inchikey": vc.identity.inchikey,
+                        "smiles": vc.identity.canonical_smiles,
+                        "canonical_smiles": vc.identity.canonical_smiles,
+                        "isomeric_smiles": vc.identity.isomeric_smiles,
+                        "iupac_name": vc.identity.iupac_name,
+                        "molecular_formula": vc.identity.molecular_formula,
+                        "molecular_weight": vc.identity.molecular_weight,
+                        "synonyms": vc.identity.synonyms,
+                        "natural_origin": vc.natural_verification.is_natural,
+                        "natural_origin_status": vc.natural_verification.status.value,
+                        "natural_origin_confidence": vc.natural_verification.confidence,
+                        "natural_product_class": vc.natural_verification.natural_product_class,
+                        "subclass": vc.natural_verification.subclass,
+                        "determination_method": vc.natural_verification.determination_method,
+                        "notes": vc.natural_verification.notes,
+                        "retrieval_routes": vc.retrieval_routes,
+                        "targets_targeted": vc.targets_targeted,
+                        "evidence_sources": vc.evidence_sources,
+                        "citation_count": vc.citation_count,
+                        "best_bioactivity_nM": vc.best_bioactivity_nM,
+                        "is_dual_route": vc.is_dual_route,
                         "target_relations": [
                             {
-                                "target_symbol": tr.target_symbol,
-                                "target_name": tr.target_name,
-                                "relation_type": tr.relation_type,
-                                "best_potency_nM": tr.best_potency_nM,
-                                "pmids": tr.pmids,
-                                "evidence_snippets": tr.evidence_snippets[:3],
-                                "source": tr.source,
+                                "target_symbol": getattr(tr, "target_symbol", ""),
+                                "target_name": getattr(tr, "target_name", ""),
+                                "relation_type": getattr(tr, "relation_type", "active_against"),
+                                "best_potency_nM": getattr(tr, "best_potency_nM", None),
+                                "pmids": getattr(tr, "pmids", []),
+                                "evidence_snippets": getattr(tr, "evidence_snippets", [])[:3],
+                                "source": getattr(tr, "source", "ChEMBL"),
                             }
-                            for tr in c.target_relations
+                            for tr in vc.target_relations
                         ],
                         "provenance": {
-                            "pmids": c.provenance.get("pmids", [])[:10],
-                            "snippets": c.provenance.get("snippets", [])[:5],
+                            "pmids": vc.provenance.get("pmids", [])[:10],
+                            "snippets": vc.provenance.get("snippets", [])[:5],
+                            "verification": vc.provenance.get("verification", {}),
                         },
                     }
 
@@ -229,11 +252,15 @@ class BiomedicalHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "status": "success",
                     "disease_name": result.disease_name,
                     "targets_queried": result.targets_queried,
-                    "total_compounds": result.total_compounds,
+                    "total_compounds": verified_batch.total_candidates,
+                    "verified_natural_count": verified_batch.verified_natural_count,
+                    "natural_derivative_count": verified_batch.natural_derivative_count,
+                    "synthetic_count": verified_batch.synthetic_count,
+                    "unverified_count": verified_batch.unverified_count,
                     "route_a_count": result.route_a_count,
                     "route_b_count": result.route_b_count,
                     "dual_route_count": result.dual_route_count,
-                    "compounds": [compound_to_dict(c) for c in result.compounds],
+                    "compounds": [verified_compound_to_dict(c) for c in verified_batch.compounds],
                 }
 
                 self.send_response(200)
@@ -249,9 +276,68 @@ class BiomedicalHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"status": "error", "message": str(exc)}).encode("utf-8"))
             return
 
+        if path == "/api/compounds/verify":
+            content_length = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_length)
+            try:
+                payload = json.loads(post_data.decode("utf-8"))
+                raw_compounds = payload.get("compounds", [])
+                candidates = []
+                for item in raw_compounds:
+                    if isinstance(item, str):
+                        candidates.append({"name": item})
+                    elif isinstance(item, dict):
+                        candidates.append(item)
+
+                verifier = get_compound_verifier()
+                verified_batch = verifier.verify_batch(candidates=candidates)
+
+                compounds_data = []
+                for vc in verified_batch.compounds:
+                    compounds_data.append({
+                        "compound_id": vc.compound_id,
+                        "name": vc.name,
+                        "pubchem_cid": vc.identity.pubchem_cid,
+                        "inchikey": vc.identity.inchikey,
+                        "canonical_smiles": vc.identity.canonical_smiles,
+                        "iupac_name": vc.identity.iupac_name,
+                        "molecular_formula": vc.identity.molecular_formula,
+                        "molecular_weight": vc.identity.molecular_weight,
+                        "synonyms": vc.identity.synonyms[:10],
+                        "natural_origin_status": vc.natural_verification.status.value,
+                        "is_natural": vc.natural_verification.is_natural,
+                        "confidence": vc.natural_verification.confidence,
+                        "natural_product_class": vc.natural_verification.natural_product_class,
+                        "subclass": vc.natural_verification.subclass,
+                        "determination_method": vc.natural_verification.determination_method,
+                        "notes": vc.natural_verification.notes,
+                        "provenance": vc.provenance,
+                    })
+
+                resp = {
+                    "status": "success",
+                    "total_candidates": verified_batch.total_candidates,
+                    "verified_natural_count": verified_batch.verified_natural_count,
+                    "natural_derivative_count": verified_batch.natural_derivative_count,
+                    "synthetic_count": verified_batch.synthetic_count,
+                    "unverified_count": verified_batch.unverified_count,
+                    "compounds": compounds_data,
+                }
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps(resp).encode("utf-8"))
+            except Exception as exc:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(exc)}).encode("utf-8"))
+            return
+
         self.send_response(404)
         self.end_headers()
-
 
 
 def start_server(port: int = 8000):
